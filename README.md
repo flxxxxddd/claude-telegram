@@ -76,6 +76,66 @@ Quick reference: IDs are **numeric user IDs** (get yours from [@userinfobot](htt
 | `reply` | Send to a chat. Takes `chat_id` + `text`, optionally `reply_to` (message ID) for native threading and `files` (absolute paths) for attachments. Images (`.jpg`/`.png`/`.gif`/`.webp`) send as photos with inline preview; other types send as documents. Max 50MB each. Auto-chunks text; files send as separate messages after the text. Returns the sent message ID(s). |
 | `react` | Add an emoji reaction to a message by ID. **Only Telegram's fixed whitelist** is accepted (👍 👎 ❤ 🔥 👀 etc). |
 | `edit_message` | Edit a message the bot previously sent. Useful for "working…" → result progress updates. Only works on the bot's own messages. |
+| `ask` | Ask the user a multiple-choice question as inline buttons and **block until they tap**. Use instead of the terminal `AskUserQuestion` tool, which never reaches Telegram. Returns the chosen option label. |
+| `stream` | Stream output into one message by editing it in place (debounced ~1 edit/sec). First call returns a `stream_id`; pass it on later calls with the full updated text; use `action:"final"` for the last update. |
+
+## Architecture — daemon + multi-session (this fork)
+
+Upstream spawns the server once **per Claude Code session** and each instance polls
+Telegram directly. Telegram allows only one `getUpdates` consumer per bot token, so
+sessions fight over the slot and only one works at a time.
+
+This fork splits the server in two:
+
+- **`daemon.ts`** — one long-lived process per bot token. It owns the single poller,
+  all access control / pairing, and every Bot API call. Auto-spawned (detached) by
+  the first session that finds none running; single-instance guarded via the socket.
+- **`server.ts`** — a thin MCP shim Claude Code spawns per session. It holds no
+  Telegram state: it connects to the daemon over a UNIX socket
+  (`$TELEGRAM_STATE_DIR/daemon.sock`), registers the session, forwards tool calls,
+  and relays inbound messages + permission answers back as MCP notifications.
+- **`protocol.ts`** — shared IPC types (newline-delimited JSON framing).
+
+**Routing.** Inbound messages route to a bound session. `/sessions` lists connected
+sessions as inline buttons — tap one to route the current chat to it. A chat with no
+binding auto-binds to the most recently connected session. Permission requests route
+back to the exact session that raised them.
+
+See **[DESIGN.md](./DESIGN.md)** for the full design and roadmap (topic threading is
+Phase 3).
+
+**Bot commands (DM):** `/start` `/help` `/status` `/sessions` (pick which session a
+chat routes to) `/new` (list projects; start an offline one).
+
+**Offline queue.** Messages typed into a project topic while its session is offline
+are held (persisted in `queue.json`) and replayed in order when a session for that
+project reconnects.
+
+**Start from Telegram.** An offline topic shows a **▶️ Start session** button (also
+via `/new`). Actual spawning runs only when `TELEGRAM_LAUNCH_CMD` is set (a shell
+template with `{cwd}`/`{name}`, e.g. `tmux new-session -d -s tg_{name} -c {cwd}
+'claude --channels plugin:telegram@claude-plugins-official'`); otherwise the bot
+replies with the exact command to run by hand.
+
+## Activity mirror (see what Claude is doing)
+
+By default you only see what Claude explicitly sends. To mirror its tool activity
+into the project topic, wire `hooks/activity.ts` into Claude Code's hooks
+(`settings.json`) — each tool call posts a one-line summary (coalesced per burst):
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [{ "matcher": "*", "hooks": [
+      { "type": "command", "command": "bun /ABS/PATH/claude-telegram-multi/hooks/activity.ts" } ]}],
+    "Stop": [{ "hooks": [
+      { "type": "command", "command": "bun /ABS/PATH/claude-telegram-multi/hooks/activity.ts" } ]}]
+  }
+}
+```
+
+The hook resolves the daemon socket from `TELEGRAM_STATE_DIR` (same default as the
+server) and no-ops silently if no daemon is running.
 
 Inbound messages trigger a typing indicator automatically — Telegram shows
 "botname is typing…" while the assistant works on a response.
