@@ -12,6 +12,7 @@ import { botToken, loadConfig, looksLikeToken, saveBotToken, saveConfig } from '
 import { paths } from '../paths.ts'
 import { selfEntry } from '../self.ts'
 import { loadAccess } from '../store/access.ts'
+import { INSTALL_STEPS, pluginInstalled } from './plugin-state.ts'
 import { bad, bold, cyan, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
 import { HOOK_EVENTS, hooksInstalled, installHooks, settingsPath } from './settings-file.ts'
@@ -83,13 +84,21 @@ export async function setup(args: string[]): Promise<number> {
     const config = loadConfig()
     const access = loadAccess()
     const live = await askStatus()
+    const installed = pluginInstalled()
 
     console.log(heading('next'))
-    if (!live) console.log(`  1. ${bold('cctg daemon start')}   ${dim('(or just open a Claude Code session)')}`)
-    console.log(`  2. Start a session with ${bold(CHANNEL_FLAG)}`)
+    if (!installed) {
+      // The channel flag names a plugin. Without the install it resolves to
+      // nothing and the session starts normally with no bridge attached, which
+      // nothing anywhere reports.
+      console.log(warn('the plugin is not installed — the channel flag does nothing without it'))
+      for (const step of INSTALL_STEPS) console.log(`     ${bold(step)}`)
+    }
+    if (!live) console.log(`  ${ok('')}${bold('cctg daemon start')}   ${dim('(or just open a Claude Code session)')}`)
+    console.log(`  Start a session with ${bold(CHANNEL_FLAG)}`)
     if (!access.allowedUsers.length) {
-      console.log(`  3. DM your bot; it replies with a code. Run ${bold('/cctg:access pair <code>')} in the session.`)
-      console.log(`  4. Once you are in, ${bold('/cctg:access policy allowlist')} so strangers get nothing.`)
+      console.log(`  DM your bot; it replies with a code. Run ${bold('/cctg:access pair <code>')} in the session.`)
+      console.log(`  Once you are in, ${bold('/cctg:access policy allowlist')} so strangers get nothing.`)
     }
     if (!config.launchCmd) {
       console.log(`\n${info('To start sessions from Telegram, set TELEGRAM_LAUNCH_CMD, e.g.')}`)

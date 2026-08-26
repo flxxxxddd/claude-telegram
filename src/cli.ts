@@ -48,8 +48,11 @@ async function main(argv: string[]): Promise<number> {
       await runHook()
       return 0
     case 'mcp':
-      // The shim owns stdio from here on; it never returns.
       await import('./mcp/server.ts')
+      // The shim owns stdio for the whole session. Returning here would fall
+      // through to the `process.exit` below and close the transport the instant
+      // it finished connecting, which the client reports as CONNECTION_CLOSED.
+      await new Promise<never>(() => undefined)
       return 0
     case 'version':
     case '--version':

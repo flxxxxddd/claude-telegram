@@ -32,7 +32,9 @@ export function spawnDaemon(): void {
   } catch {
     out = 'ignore'
   }
-  const child = spawn(exec, [script, 'daemon', 'start'], {
+  // `--foreground` is essential, not incidental: `daemon start` detaches by
+  // default, so without it this child would spawn a child of its own, forever.
+  const child = spawn(exec, [script, 'daemon', 'start', '--foreground'], {
     detached: true,
     stdio: ['ignore', out, out],
     env: process.env,

@@ -12,6 +12,7 @@ import { topics } from '../store/repos.ts'
 import { bad, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
 import { hookCommand } from './setup.ts'
+import { INSTALL_STEPS, pluginInstalled } from './plugin-state.ts'
 import { hooksInstalled, settingsPath } from './settings-file.ts'
 
 type Check = { level: 'ok' | 'warn' | 'bad'; text: string; fix?: string }
@@ -83,6 +84,14 @@ export async function doctor(): Promise<number> {
       })
     }
   }
+
+  checks.push(pluginInstalled()
+    ? { level: 'ok', text: 'the plugin is installed' }
+    : {
+        level: 'bad',
+        text: 'the plugin is not installed, so the channel flag resolves to nothing',
+        fix: INSTALL_STEPS.join('  &&  '),
+      })
 
   const command = hookCommand()
   checks.push(hooksInstalled(command)

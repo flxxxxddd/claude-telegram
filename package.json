@@ -1,6 +1,6 @@
 {
   "name": "claude-code-telegram",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Drive Claude Code from Telegram: one daemon bridges every session over a shared bot, with a topic per project, rich streamed answers and a live pinned status.",
   "type": "module",
   "bin": {

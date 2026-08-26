@@ -17,12 +17,15 @@ export async function daemon(args: string[]): Promise<number> {
   const action = args[0] ?? 'start'
   switch (action) {
     case 'start':
-      return start(args.includes('--detach'))
+      // Detached is the default. `start` running in the foreground meant a
+      // closed terminal took the bridge down with it, and the symptom — "no
+      // daemon is running" an hour later — pointed nowhere near the cause.
+      return start(!args.includes('--foreground'))
     case 'stop':
       return stop()
     case 'restart':
       await stop()
-      return start(true)
+      return start(!args.includes('--foreground'))
     case 'log':
       return log(args.includes('-f') || args.includes('--follow'))
     default:
@@ -38,8 +41,26 @@ async function start(detach: boolean): Promise<number> {
     console.log(ok(`already running as @${live.botUsername} (pid ${live.pid})`))
     return 0
   }
-  if (!detach) {
-    // Foreground: replace this process so Ctrl-C reaches the daemon directly.
+  if (detach) {
+    spawnDaemon()
+    // Wait for it to answer rather than claiming success blindly: a daemon that
+    // cannot reach Telegram exits within a second, and reporting "started" for
+    // one that is already gone is how a bad token stays invisible.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await Bun.sleep(250)
+      const started = await askStatus()
+      if (started) {
+        console.log(ok(`daemon running as @${started.botUsername} (pid ${started.pid})`))
+        return 0
+      }
+    }
+    console.log(bad('the daemon did not come up'))
+    console.log(info(`what it said is in ${paths.log} — \`cctg daemon log\``))
+    return 1
+  }
+
+  {
+    // Foreground: this process becomes the daemon, so Ctrl-C reaches it.
     const { Daemon } = await import('../daemon/index.ts')
     const instance = new Daemon()
     const shutdown = (): void => void instance.shutdown().then(() => process.exit(0))
@@ -57,9 +78,6 @@ async function start(detach: boolean): Promise<number> {
     await new Promise<never>(() => undefined)
     return 0
   }
-  spawnDaemon()
-  console.log(ok(`daemon starting in the background — log at ${paths.log}`))
-  return 0
 }
 
 async function stop(): Promise<number> {

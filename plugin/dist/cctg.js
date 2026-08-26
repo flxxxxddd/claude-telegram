@@ -115,7 +115,7 @@ function spawnDaemon() {
   } catch {
     out = "ignore";
   }
-  const child = spawn(exec, [script, "daemon", "start"], {
+  const child = spawn(exec, [script, "daemon", "start", "--foreground"], {
     detached: true,
     stdio: ["ignore", out, out],
     env: process.env
@@ -12025,7 +12025,7 @@ class TypingKeeper {
 var REFRESH_MS = 4000;
 
 // src/version.ts
-var VERSION = "0.1.0";
+var VERSION = "0.1.1";
 
 // src/daemon/launcher.ts
 import { spawn as spawn2 } from "child_process";
@@ -37744,12 +37744,12 @@ async function daemon(args) {
   const action = args[0] ?? "start";
   switch (action) {
     case "start":
-      return start2(args.includes("--detach"));
+      return start2(!args.includes("--foreground"));
     case "stop":
       return stop();
     case "restart":
       await stop();
-      return start2(true);
+      return start2(!args.includes("--foreground"));
     case "log":
       return log(args.includes("-f") || args.includes("--follow"));
     default:
@@ -37764,7 +37764,21 @@ async function start2(detach) {
     console.log(ok(`already running as @${live.botUsername} (pid ${live.pid})`));
     return 0;
   }
-  if (!detach) {
+  if (detach) {
+    spawnDaemon();
+    for (let attempt = 0;attempt < 20; attempt++) {
+      await Bun.sleep(250);
+      const started = await askStatus();
+      if (started) {
+        console.log(ok(`daemon running as @${started.botUsername} (pid ${started.pid})`));
+        return 0;
+      }
+    }
+    console.log(bad("the daemon did not come up"));
+    console.log(info(`what it said is in ${paths.log} \u2014 \`cctg daemon log\``));
+    return 1;
+  }
+  {
     const { Daemon: Daemon2 } = await Promise.resolve().then(() => (init_daemon(), exports_daemon));
     const instance = new Daemon2;
     const shutdown = () => void instance.shutdown().then(() => process.exit(0));
@@ -37782,9 +37796,6 @@ async function start2(detach) {
     });
     return 0;
   }
-  spawnDaemon();
-  console.log(ok(`daemon starting in the background \u2014 log at ${paths.log}`));
-  return 0;
 }
 async function stop() {
   const stopped = await askStop();
@@ -37837,17 +37848,37 @@ init_access();
 import { spawnSync } from "child_process";
 import { createInterface } from "readline/promises";
 
+// src/commands/plugin-state.ts
+init_paths();
+import { readFileSync as readFileSync5 } from "fs";
+import { join as join3 } from "path";
+var PLUGIN_NAME = "claude-telegram";
+var MARKETPLACE = "flxxxxddd/claude-telegram";
+function pluginInstalled() {
+  try {
+    const raw = readFileSync5(join3(claudeHome(), "plugins", "installed_plugins.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    return Object.keys(parsed.plugins ?? {}).some((key) => key.split("@")[0] === PLUGIN_NAME);
+  } catch {
+    return false;
+  }
+}
+var INSTALL_STEPS = [
+  `claude plugin marketplace add ${MARKETPLACE}`,
+  `claude plugin install ${PLUGIN_NAME}@${PLUGIN_NAME}`
+];
+
 // src/commands/settings-file.ts
 init_paths();
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "fs";
-import { dirname as dirname2, join as join3 } from "path";
+import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "fs";
+import { dirname as dirname2, join as join4 } from "path";
 var HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd"];
 function settingsPath() {
-  return join3(claudeHome(), "settings.json");
+  return join4(claudeHome(), "settings.json");
 }
 function readSettings() {
   try {
-    const raw = JSON.parse(readFileSync5(settingsPath(), "utf8"));
+    const raw = JSON.parse(readFileSync6(settingsPath(), "utf8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
     return {};
@@ -37874,7 +37905,7 @@ function installHooks(command2) {
     const path = settingsPath();
     mkdirSync6(dirname2(path), { recursive: true });
     if (existsSync7(path))
-      writeFileSync4(`${path}.cctg-backup`, readFileSync5(path));
+      writeFileSync4(`${path}.cctg-backup`, readFileSync6(path));
     writeFileSync4(path, `${JSON.stringify({ ...settings2, hooks }, null, 2)}
 `);
   }
@@ -37934,13 +37965,19 @@ async function setup(args) {
     const config = loadConfig();
     const access = loadAccess();
     const live = await askStatus();
+    const installed2 = pluginInstalled();
     console.log(heading("next"));
+    if (!installed2) {
+      console.log(warn("the plugin is not installed \u2014 the channel flag does nothing without it"));
+      for (const step of INSTALL_STEPS)
+        console.log(`     ${bold(step)}`);
+    }
     if (!live)
-      console.log(`  1. ${bold("cctg daemon start")}   ${dim("(or just open a Claude Code session)")}`);
-    console.log(`  2. Start a session with ${bold(CHANNEL_FLAG2)}`);
+      console.log(`  ${ok("")}${bold("cctg daemon start")}   ${dim("(or just open a Claude Code session)")}`);
+    console.log(`  Start a session with ${bold(CHANNEL_FLAG2)}`);
     if (!access.allowedUsers.length) {
-      console.log(`  3. DM your bot; it replies with a code. Run ${bold("/cctg:access pair <code>")} in the session.`);
-      console.log(`  4. Once you are in, ${bold("/cctg:access policy allowlist")} so strangers get nothing.`);
+      console.log(`  DM your bot; it replies with a code. Run ${bold("/cctg:access pair <code>")} in the session.`);
+      console.log(`  Once you are in, ${bold("/cctg:access policy allowlist")} so strangers get nothing.`);
     }
     if (!config.launchCmd) {
       console.log(`
@@ -38014,6 +38051,11 @@ async function doctor() {
       });
     }
   }
+  checks.push(pluginInstalled() ? { level: "ok", text: "the plugin is installed" } : {
+    level: "bad",
+    text: "the plugin is not installed, so the channel flag resolves to nothing",
+    fix: INSTALL_STEPS.join("  &&  ")
+  });
   const command2 = hookCommand();
   checks.push(hooksInstalled(command2) ? { level: "ok", text: "mirror hooks are wired" } : {
     level: config.mirror === "off" ? "ok" : "warn",
@@ -38112,6 +38154,9 @@ async function main2(argv) {
       return 0;
     case "mcp":
       await init_server3().then(() => exports_server);
+      await new Promise(() => {
+        return;
+      });
       return 0;
     case "version":
     case "--version":
