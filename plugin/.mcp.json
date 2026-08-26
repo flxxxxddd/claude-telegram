@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "telegram": {
+      "command": "bun",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/cctg.js", "mcp"]
+    }
+  }
+}

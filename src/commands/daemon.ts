@@ -7,12 +7,11 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, openSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { paths } from '../paths.ts'
+import { spawnDaemon } from '../self.ts'
 import { bad, bold, dim, info, ok } from '../ui.ts'
 import { askStatus, askStop } from './client.ts'
-
-const ENTRY = new URL('../daemon/run.ts', import.meta.url).pathname
 
 export async function daemon(args: string[]): Promise<number> {
   const action = args[0] ?? 'start'
@@ -48,16 +47,17 @@ async function start(detach: boolean): Promise<number> {
     process.on('SIGTERM', shutdown)
     try {
       await instance.start()
-      console.log(ok(`daemon running — log at ${paths.log}`))
-      return 0
     } catch (err) {
       console.log(bad(err instanceof Error ? err.message : String(err)))
       return 1
     }
+    console.log(ok(`daemon running — log at ${paths.log}`))
+    // `bot.start()` resolves once polling is up, so hold the process open until
+    // a signal arrives; the handlers above are what actually end it.
+    await new Promise<never>(() => undefined)
+    return 0
   }
-  const out = openSync(paths.log, 'a')
-  const child = spawn('bun', [ENTRY], { detached: true, stdio: ['ignore', out, out] })
-  child.unref()
+  spawnDaemon()
   console.log(ok(`daemon starting in the background — log at ${paths.log}`))
   return 0
 }

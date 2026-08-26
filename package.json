@@ -9,11 +9,12 @@
   "files": [
     "dist",
     "plugin",
+    "hooks",
     "README.md"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",
-    "build": "bun build src/cli.ts --target=bun --outfile dist/cli.js && chmod +x dist/cli.js",
+    "build": "bun run scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "prepublishOnly": "bun run build"

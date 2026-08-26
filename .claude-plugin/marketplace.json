@@ -1,0 +1,15 @@
+{
+  "name": "claude-telegram",
+  "owner": { "name": "claude-telegram contributors" },
+  "metadata": {
+    "description": "Drive Claude Code from Telegram",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "claude-telegram",
+      "source": "./plugin",
+      "description": "A topic per project, the whole turn mirrored as it happens, and buttons for the questions that need you."
+    }
+  ]
+}

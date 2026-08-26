@@ -1,0 +1,8 @@
+{
+  "name": "claude-telegram",
+  "version": "0.1.0",
+  "description": "Drive Claude Code from Telegram: a topic per project, the whole turn mirrored as it happens, and buttons for the questions that need you.",
+  "author": { "name": "claude-telegram contributors" },
+  "homepage": "https://github.com/flxxxxddd/claude-telegram",
+  "keywords": ["telegram", "channel", "mcp", "multi-session", "remote"]
+}

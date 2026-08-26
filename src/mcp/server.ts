@@ -16,17 +16,14 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { spawn } from 'node:child_process'
-import { openSync } from 'node:fs'
 import { connect, type Socket } from 'node:net'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { paths, projectName } from '../paths.ts'
 import { frame, type ClientMsg, type DaemonMsg, type SessionInfo } from '../protocol.ts'
+import { spawnDaemon } from '../self.ts'
 import { VERSION } from '../version.ts'
 import { INSTRUCTIONS, TOOLS } from './tools.ts'
-
-const DAEMON_ENTRY = new URL('../daemon/run.ts', import.meta.url).pathname
 
 const session: SessionInfo = {
   id: process.env.CLAUDE_CODE_SESSION_ID ?? `unknown-${process.pid}`,
@@ -56,14 +53,7 @@ function startDaemon(): void {
   if (spawnedDaemon) return
   spawnedDaemon = true
   warn('no daemon listening; starting one')
-  let out: 'ignore' | number = 'ignore'
-  try {
-    out = openSync(paths.log, 'a')
-  } catch {
-    out = 'ignore'
-  }
-  const child = spawn('bun', [DAEMON_ENTRY], { detached: true, stdio: ['ignore', out, out], env: process.env })
-  child.unref()
+  spawnDaemon()
 }
 
 function connectToDaemon(attempt = 1): void {

@@ -53,7 +53,20 @@ export class Daemon {
 
   /* ------------------------------------------------------------ lifecycle -- */
 
+  /**
+   * Bring the bridge up. Anything that fails here leaves nothing behind — a pid
+   * file from a daemon that never started would misreport a live one.
+   */
   async start(): Promise<void> {
+    try {
+      await this.boot()
+    } catch (err) {
+      await this.shutdown()
+      throw err
+    }
+  }
+
+  private async boot(): Promise<void> {
     const token = botToken()
     if (!token) {
       throw new Error(
@@ -76,7 +89,17 @@ export class Daemon {
     this.hud = new Hud(this.api, this.conn, this.topics, this.t)
     this.typing = new TypingKeeper(this.api)
 
-    const me = await this.api.getMe()
+    let me: Awaited<ReturnType<Api['getMe']>>
+    try {
+      me = await this.api.getMe()
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(
+        /401/.test(detail)
+          ? `Telegram rejected the token. Check it with @BotFather, then \`cctg setup\` to replace it.`
+          : `could not reach Telegram: ${detail}`,
+      )
+    }
     this.botUsername = me.username ?? ''
     this.threadMode = await this.topics.detect()
     this.log(`bot @${this.botUsername}, threading: ${this.threadMode}`)
