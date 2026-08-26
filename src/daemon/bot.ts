@@ -325,11 +325,16 @@ async function allowed(d: Daemon, ctx: Ctx): Promise<boolean> {
 
   if (!isPrivate(ctx)) {
     const mentioned = mentionsBot(ctx, d.botUsername)
-    return gateGroup(access, chatId, mentioned).ok
+    if (!gateGroup(access, chatId, mentioned).ok) return false
+    await d.adoptChat(chatId)
+    return true
   }
 
   const gate = gateDm(access, userId)
-  if (gate.ok) return true
+  if (gate.ok) {
+    await d.adoptChat(chatId)
+    return true
+  }
   if (gate.reason === 'unknown-user') {
     const code = mintPairingCode(access, userId, chatId)
     saveAccess(access)

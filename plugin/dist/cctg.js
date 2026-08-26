@@ -11644,15 +11644,17 @@ class Hud {
   conn;
   topics;
   t;
+  log;
   pending = new Map;
   timers = new Map;
   lastEdit = new Map;
   lastDrawn = new Map;
-  constructor(api, conn, topics2, t) {
+  constructor(api, conn, topics2, t, log) {
     this.api = api;
     this.conn = conn;
     this.topics = topics2;
     this.t = t;
+    this.log = log;
   }
   key(target) {
     return `${target.chatId}:${target.threadId}`;
@@ -11714,6 +11716,7 @@ class Hud {
         this.lastDrawn.delete(key);
         return;
       }
+      this.log(`status ${existing ? "edit" : "post"} failed in ${key}: ${String(err)}`);
       if (existing) {
         hud.clear(this.conn, target.chatId, target.threadId);
         this.lastDrawn.delete(key);
@@ -12354,11 +12357,16 @@ async function allowed(d, ctx) {
     saveAccess(access);
   if (!isPrivate2(ctx)) {
     const mentioned = mentionsBot(ctx, d.botUsername);
-    return gateGroup(access, chatId2, mentioned).ok;
+    if (!gateGroup(access, chatId2, mentioned).ok)
+      return false;
+    await d.adoptChat(chatId2);
+    return true;
   }
   const gate = gateDm(access, userId);
-  if (gate.ok)
+  if (gate.ok) {
+    await d.adoptChat(chatId2);
     return true;
+  }
   if (gate.reason === "unknown-user") {
     const code3 = mintPairingCode(access, userId, chatId2);
     saveAccess(access);
@@ -12781,6 +12789,7 @@ class Daemon {
   threadMode = "flat";
   server;
   locales = kvStore(this.conn, "locale:");
+  kv = kvStore(this.conn, "daemon:");
   async start() {
     try {
       await this.boot();
@@ -12802,7 +12811,7 @@ class Daemon {
     }));
     this.api = this.bot.api;
     this.topics = new TopicManager(this.api, this.conn, this.config);
-    this.hud = new Hud(this.api, this.conn, this.topics, this.t);
+    this.hud = new Hud(this.api, this.conn, this.topics, this.t, (msg) => this.log(msg));
     this.typing = new TypingKeeper(this.api);
     let me;
     try {
@@ -13094,8 +13103,23 @@ class Daemon {
     }
   }
   homeChat() {
+    const recent = this.kv.get("home-chat");
+    if (recent)
+      return recent;
     const access = loadAccess();
     return access.allowedUsers[0] ?? access.allowedChats[0];
+  }
+  async adoptChat(chatId2) {
+    if (this.kv.get("home-chat") === chatId2)
+      return;
+    this.kv.set("home-chat", chatId2);
+    for (const entry of this.sessions.all()) {
+      if (entry.chatId)
+        continue;
+      entry.chatId = chatId2;
+      entry.threadId = await this.topics.ensure(chatId2, entry.info.cwd, entry.info.title);
+      this.drawHud(entry, entry.state);
+    }
   }
   tokenForDownloads() {
     const token = botToken();

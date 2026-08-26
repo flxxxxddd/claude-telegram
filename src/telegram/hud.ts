@@ -37,6 +37,7 @@ export class Hud {
     private conn: Database,
     private topics: TopicManager,
     private t: Strings,
+    private log: (message: string) => void,
   ) {}
 
   private key(target: Target): string {
@@ -109,7 +110,10 @@ export class Hud {
         return
       }
       // The stored message id is stale (deleted by hand, or too old to edit).
-      // Drop it so the next draw posts a fresh status.
+      // Drop it so the next draw posts a fresh status. This is logged because a
+      // *persistent* edit failure reposts the status on every change, which
+      // fills the topic with pins — silence here made that impossible to find.
+      this.log(`status ${existing ? 'edit' : 'post'} failed in ${key}: ${String(err)}`)
       if (existing) {
         hudStore.clear(this.conn, target.chatId, target.threadId)
         this.lastDrawn.delete(key)

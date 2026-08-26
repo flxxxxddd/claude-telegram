@@ -52,6 +52,7 @@ export class Daemon {
 
   private server: Server | undefined
   private locales = kvStore<string>(this.conn, 'locale:')
+  private kv = kvStore<string>(this.conn, 'daemon:')
 
   /* ------------------------------------------------------------ lifecycle -- */
 
@@ -88,7 +89,7 @@ export class Daemon {
     this.api = this.bot.api
 
     this.topics = new TopicManager(this.api, this.conn, this.config)
-    this.hud = new Hud(this.api, this.conn, this.topics, this.t)
+    this.hud = new Hud(this.api, this.conn, this.topics, this.t, msg => this.log(msg))
     this.typing = new TypingKeeper(this.api)
 
     let me: Awaited<ReturnType<Api['getMe']>>
@@ -458,13 +459,35 @@ export class Daemon {
   /* -------------------------------------------------------------- helpers -- */
 
   /**
-   * The chat a session posts into. A private chat's id is the user's id, so the
-   * first allowed user is the owner's DM; a group is used only when no user has
-   * paired yet.
+   * The chat a session posts into: the one that most recently talked to the
+   * bot, falling back to the allowlist.
+   *
+   * Reading the allowlist alone was wrong in two ways. Under the `open` policy
+   * it is empty, so a session never got a chat at all; and with two people
+   * paired, every session posted to whoever happened to be listed first. The
+   * chat someone is actually using is the one they want a session in.
    */
   homeChat(): string | undefined {
+    const recent = this.kv.get('home-chat')
+    if (recent) return recent
     const access = loadAccess()
     return access.allowedUsers[0] ?? access.allowedChats[0]
+  }
+
+  /**
+   * Remember a chat that passed the access gate, and give any session still
+   * without one a topic in it — otherwise the first session of the day stays
+   * invisible until it is restarted.
+   */
+  async adoptChat(chatId: string): Promise<void> {
+    if (this.kv.get('home-chat') === chatId) return
+    this.kv.set('home-chat', chatId)
+    for (const entry of this.sessions.all()) {
+      if (entry.chatId) continue
+      entry.chatId = chatId
+      entry.threadId = await this.topics.ensure(chatId, entry.info.cwd, entry.info.title)
+      this.drawHud(entry, entry.state)
+    }
   }
 
   /**
