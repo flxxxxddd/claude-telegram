@@ -151,6 +151,41 @@ export const turns = {
   },
 }
 
+/* --------------------------------------------------------------- handles -- */
+
+/**
+ * Short, stable ids for values too long to fit in a button.
+ *
+ * `callback_data` is capped at 64 bytes and an absolute path routinely exceeds
+ * it, so a button carries a handle and the daemon looks the path back up. Ids
+ * are minted once per value and reused, so a button stays valid across daemon
+ * restarts — Telegram keeps old buttons on screen indefinitely.
+ */
+export const handles = {
+  /** The id for `value`, minting one on first use. */
+  of(conn: Database, value: string): string {
+    const existing = conn.query('SELECT key FROM kv WHERE key LIKE ? AND value = ?')
+      .get('h:%', JSON.stringify(value)) as { key: string } | null
+    if (existing) return existing.key.slice(2)
+    const id = Math.random().toString(36).slice(2, 8)
+    conn.query('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value')
+      .run(`h:${id}`, JSON.stringify(value))
+    return id
+  },
+
+  /** The value behind an id, or `null` when the button predates a state reset. */
+  get(conn: Database, id: string): string | null {
+    const row = conn.query('SELECT value FROM kv WHERE key = ?').get(`h:${id}`) as { value: string } | null
+    if (!row) return null
+    try {
+      const parsed = JSON.parse(row.value) as unknown
+      return typeof parsed === 'string' ? parsed : null
+    } catch {
+      return null
+    }
+  },
+}
+
 /* -------------------------------------------------------------------- kv -- */
 
 /**
