@@ -150,6 +150,11 @@ bun run src/cli.ts daemon log -f
 `plugin/dist/cctg.js` is a build artifact **and** is committed — a plugin
 installed from git has no build step. Rebuild it in the same commit as any
 source change that ships, or the plugin runs the previous version.
+`build-stamp.test.ts` fails when you forget: the build records a hash of the
+sources it consumed, and the test recomputes it. Do not try to catch this by
+diffing the bundle instead — no bundler promises identical bytes across its own
+versions, so that check fails on a Bun upgrade and passes on a stale bundle
+built by the right Bun.
 
 ## Commits
 

@@ -12,6 +12,7 @@
 
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { sourceStamp, STAMP_FILE } from '../src/build-stamp.ts'
 
 const root = join(import.meta.dir, '..')
 const targets = [join(root, 'dist', 'cli.js'), join(root, 'plugin', 'dist', 'cctg.js')]
@@ -39,3 +40,8 @@ for (const outfile of targets) {
 }
 
 await rm(join(root, 'dist', 'cli.js.map'), { force: true })
+
+// Record what this bundle was built from, so a shipped source change that
+// forgot to rebuild fails the test suite instead of the plugin.
+await Bun.write(join(root, STAMP_FILE), `${sourceStamp(root)}\n`)
+console.log(`${STAMP_FILE}  ${sourceStamp(root).slice(0, 12)}…`)

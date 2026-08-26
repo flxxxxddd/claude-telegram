@@ -27,5 +27,3 @@ jobs:
         run: bun run build
       - name: Smoke-test the bundle
         run: bun dist/cli.js --version
-      - name: The committed plugin bundle matches the source
-        run: git diff --exit-code -- plugin/dist
