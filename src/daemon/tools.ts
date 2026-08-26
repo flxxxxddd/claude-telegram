@@ -9,6 +9,7 @@ import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs'
 import { basename, extname, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { media } from 'yaebal'
 import { REACTION_WHITELIST } from '../store/access.ts'
 import { paths } from '../paths.ts'
 import { askKeyboard } from '../telegram/keyboards.ts'
@@ -96,11 +97,11 @@ async function sendFile(
   const size = statSync(abs).size
   if (size > MAX_UPLOAD) throw new Error(`${basename(abs)} is ${(size / 1e6).toFixed(1)}MB; Telegram caps bot uploads at 50MB`)
 
-  const file = Bun.file(abs)
+  const file = media.path(abs)
   const common = { chat_id: chatId, message_thread_id: threadId }
   const message = PHOTO_EXTENSIONS.has(extname(abs).toLowerCase())
-    ? await d.api.sendPhoto({ ...common, photo: file as never })
-    : await d.api.sendDocument({ ...common, document: file as never })
+    ? await d.api.sendPhoto({ ...common, photo: file })
+    : await d.api.sendDocument({ ...common, document: file })
   return message.message_id
 }
 

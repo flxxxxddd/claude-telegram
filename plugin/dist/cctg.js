@@ -675,9 +675,32 @@ var init_format_hook = __esm(() => {
 function isMediaSource(x) {
   return typeof x === "object" && x !== null && MEDIA in x;
 }
-var MEDIA;
+var MEDIA, media;
 var init_media = __esm(() => {
   MEDIA = Symbol.for("yaebal.media");
+  media = {
+    path: (path) => ({ [MEDIA]: true, kind: "path", path }),
+    url: (url) => ({ [MEDIA]: true, kind: "url", url }),
+    buffer: (buffer, filename) => ({
+      [MEDIA]: true,
+      kind: "buffer",
+      filename,
+      buffer
+    }),
+    stream: (stream, filename) => ({
+      [MEDIA]: true,
+      kind: "stream",
+      filename,
+      stream
+    }),
+    text: (text, filename) => ({
+      [MEDIA]: true,
+      kind: "text",
+      filename,
+      text
+    }),
+    fileId: (fileId) => ({ [MEDIA]: true, kind: "fileId", fileId })
+  };
 });
 
 // node_modules/@yaebal/core/lib/api.js
@@ -12047,11 +12070,6 @@ var init_launcher = __esm(() => {
 });
 
 // src/daemon/permissions.ts
-var exports_permissions = {};
-__export(exports_permissions, {
-  askPermission: () => askPermission,
-  answerPermission: () => answerPermission
-});
 async function askPermission(d, sessionId, msg) {
   const entry = d.sessions.get(sessionId);
   const chatId2 = entry?.chatId ?? d.homeChat();
@@ -12527,67 +12545,7 @@ var init_pending = __esm(() => {
   PERMISSION_TIMEOUT_MS = 30 * 60 * 1000;
 });
 
-// src/daemon/sessions.ts
-class SessionRegistry {
-  byId = new Map;
-  add(info2, send) {
-    this.byId.get(info2.id)?.mirror?.stop();
-    const entry = { info: info2, send, connectedAt: Date.now(), state: "idle" };
-    this.byId.set(info2.id, entry);
-    return entry;
-  }
-  remove(id) {
-    const entry = this.byId.get(id);
-    if (!entry)
-      return;
-    entry.mirror?.stop();
-    entry.stream?.cancel();
-    this.byId.delete(id);
-    return entry;
-  }
-  rebind(oldId, newId) {
-    if (oldId === newId)
-      return this.byId.get(oldId);
-    const entry = this.byId.get(oldId);
-    if (!entry)
-      return;
-    entry.mirror?.stop();
-    entry.mirror = undefined;
-    entry.info = { ...entry.info, id: newId };
-    this.byId.delete(oldId);
-    this.byId.set(newId, entry);
-    return entry;
-  }
-  get(id) {
-    return this.byId.get(id);
-  }
-  all() {
-    return [...this.byId.values()];
-  }
-  forProject(cwd) {
-    return this.all().filter((e) => e.info.cwd === cwd).sort((a, b) => b.connectedAt - a.connectedAt);
-  }
-  mostRecent() {
-    return this.all().sort((a, b) => b.connectedAt - a.connectedAt)[0];
-  }
-  views() {
-    return this.all().sort((a, b) => b.connectedAt - a.connectedAt).map((e) => ({
-      ...e.info,
-      connectedAt: e.connectedAt,
-      model: e.model,
-      effort: e.effort,
-      chatId: e.chatId,
-      threadId: e.threadId,
-      busy: e.state === "working"
-    }));
-  }
-}
-
 // src/daemon/tools.ts
-var exports_tools = {};
-__export(exports_tools, {
-  runTool: () => runTool
-});
 import { createWriteStream, existsSync as existsSync4, mkdirSync as mkdirSync4, statSync as statSync3 } from "fs";
 import { basename, extname, resolve as resolve3 } from "path";
 import { Readable } from "stream";
@@ -12649,7 +12607,7 @@ async function sendFile(d, chatId2, threadId, path) {
   const size = statSync3(abs).size;
   if (size > MAX_UPLOAD)
     throw new Error(`${basename(abs)} is ${(size / 1e6).toFixed(1)}MB; Telegram caps bot uploads at 50MB`);
-  const file = Bun.file(abs);
+  const file = media.path(abs);
   const common = { chat_id: chatId2, message_thread_id: threadId };
   const message = PHOTO_EXTENSIONS.has(extname(abs).toLowerCase()) ? await d.api.sendPhoto({ ...common, photo: file }) : await d.api.sendDocument({ ...common, document: file });
   return message.message_id;
@@ -12733,6 +12691,7 @@ var MAX_UPLOAD, PHOTO_EXTENSIONS, str = (v) => typeof v === "string" && v.trim()
   return Number.isFinite(n) ? n : undefined;
 };
 var init_tools = __esm(() => {
+  init_lib16();
   init_access();
   init_paths();
   init_keyboards();
@@ -12740,6 +12699,62 @@ var init_tools = __esm(() => {
   MAX_UPLOAD = 50 * 1024 * 1024;
   PHOTO_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
 });
+
+// src/daemon/sessions.ts
+class SessionRegistry {
+  byId = new Map;
+  add(info2, send) {
+    this.byId.get(info2.id)?.mirror?.stop();
+    const entry = { info: info2, send, connectedAt: Date.now(), state: "idle" };
+    this.byId.set(info2.id, entry);
+    return entry;
+  }
+  remove(id) {
+    const entry = this.byId.get(id);
+    if (!entry)
+      return;
+    entry.mirror?.stop();
+    entry.stream?.cancel();
+    this.byId.delete(id);
+    return entry;
+  }
+  rebind(oldId, newId) {
+    if (oldId === newId)
+      return this.byId.get(oldId);
+    const entry = this.byId.get(oldId);
+    if (!entry)
+      return;
+    entry.mirror?.stop();
+    entry.mirror = undefined;
+    entry.info = { ...entry.info, id: newId };
+    this.byId.delete(oldId);
+    this.byId.set(newId, entry);
+    return entry;
+  }
+  get(id) {
+    return this.byId.get(id);
+  }
+  all() {
+    return [...this.byId.values()];
+  }
+  forProject(cwd) {
+    return this.all().filter((e) => e.info.cwd === cwd).sort((a, b) => b.connectedAt - a.connectedAt);
+  }
+  mostRecent() {
+    return this.all().sort((a, b) => b.connectedAt - a.connectedAt)[0];
+  }
+  views() {
+    return this.all().sort((a, b) => b.connectedAt - a.connectedAt).map((e) => ({
+      ...e.info,
+      connectedAt: e.connectedAt,
+      model: e.model,
+      effort: e.effort,
+      chatId: e.chatId,
+      threadId: e.threadId,
+      busy: e.state === "working"
+    }));
+  }
+}
 
 // src/daemon/index.ts
 var exports_daemon = {};
@@ -12753,7 +12768,7 @@ import { existsSync as existsSync5, mkdirSync as mkdirSync5, readFileSync as rea
 class Daemon {
   conn = db();
   config = loadConfig();
-  t = strings(loadConfig().locale);
+  t = strings(this.config.locale);
   sessions = new SessionRegistry;
   pending = new PendingStore;
   startedAt = Date.now();
@@ -13019,14 +13034,27 @@ class Daemon {
       this.typing.stop(entry.chatId, entry.threadId);
     entry.state = "done";
     if (snap && entry.stream) {
-      await entry.stream.finish(snap);
-    } else if (snap && entry.chatId && this.config.mirror === "full") {
-      await this.sendRich(entry.chatId, entry.threadId, snap.prose.join(`
-
-`) || null);
+      if (hasContent(snap))
+        await entry.stream.finish(snap);
+      else
+        entry.stream.cancel();
+    } else if (snap && entry.chatId && this.config.mirror === "full" && hasContent(snap)) {
+      await this.sendTurn(entry.chatId, entry.threadId, snap);
     }
     entry.stream = undefined;
     this.drawHud(entry, "done");
+  }
+  async sendTurn(chatId2, threadId, snap) {
+    const doc = renderTurn({ ...snap, complete: true }, { t: this.t, locale: this.localeFor(chatId2) });
+    try {
+      await this.api.sendRichMessage({
+        chat_id: chatId2,
+        message_thread_id: threadId,
+        rich_message: doc.toInputRichMessage()
+      });
+    } catch (err) {
+      this.topics.noteSendFailure(chatId2, threadId, err);
+    }
   }
   async onTitle(sessionId, title) {
     const entry = this.sessions.get(sessionId);
@@ -13038,9 +13066,9 @@ class Daemon {
   }
   drawHud(entry, state) {
     entry.state = state;
-    if (!this.config.pinnedStatus || !entry.chatId || entry.threadId === undefined)
+    if (!this.config.pinnedStatus || !entry.chatId)
       return;
-    this.hud.schedule({ chatId: entry.chatId, threadId: entry.threadId }, this.localeFor(entry.chatId), {
+    this.hud.schedule({ chatId: entry.chatId, threadId: entry.threadId ?? 0 }, this.localeFor(entry.chatId), {
       data: {
         state,
         project: projectName(entry.info.cwd),
@@ -13123,14 +13151,15 @@ class Daemon {
   settingsFor(cwd) {
     return settings.get(this.conn, cwd);
   }
-  async runTool(sessionId, name, args) {
-    const { runTool: runTool2 } = await Promise.resolve().then(() => (init_tools(), exports_tools));
-    return runTool2(this, sessionId, name, args);
+  runTool(sessionId, name, args) {
+    return runTool(this, sessionId, name, args);
   }
-  async onPermissionRequest(sessionId, msg) {
-    const { askPermission: askPermission2 } = await Promise.resolve().then(() => (init_permissions(), exports_permissions));
-    await askPermission2(this, sessionId, msg);
+  onPermissionRequest(sessionId, msg) {
+    return askPermission(this, sessionId, msg);
   }
+}
+function hasContent(snap) {
+  return snap.prose.length > 0 || snap.tools.length > 0;
 }
 function isAlive(pid) {
   try {
@@ -13159,6 +13188,8 @@ var init_daemon = __esm(() => {
   init_topics();
   init_bot2();
   init_pending();
+  init_permissions();
+  init_tools();
 });
 
 // node_modules/zod/v4/core/core.js

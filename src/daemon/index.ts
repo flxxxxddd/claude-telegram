@@ -17,25 +17,27 @@ import { autoRetry, autoAnswer, i18n } from 'yaebal'
 import { botToken, loadConfig, type Config } from '../config.ts'
 import { closeDb, db } from '../db.ts'
 import { en, ru, strings, type Locale, type Strings } from '../i18n/index.ts'
-import { TurnMirror } from '../mirror/transcript.ts'
+import { TurnMirror, type TurnSnapshot } from '../mirror/transcript.ts'
 import { paths, projectName, transcriptPath } from '../paths.ts'
 import { frame, type ClientMsg, type DaemonMsg, type DaemonStatus, type SessionInfo } from '../protocol.ts'
 import { loadAccess } from '../store/access.ts'
 import { handles, hud as hudStore, kvStore, queue, settings, topics as topicStore } from '../store/repos.ts'
 import { Hud } from '../telegram/hud.ts'
-import { renderText } from '../telegram/render.ts'
+import { renderText, renderTurn } from '../telegram/render.ts'
 import { TurnStream } from '../telegram/stream.ts'
 import { TopicManager } from '../telegram/topics.ts'
 import { TypingKeeper } from '../telegram/typing.ts'
 import { VERSION } from '../version.ts'
 import { installHandlers } from './bot.ts'
 import { PendingStore } from './pending.ts'
+import { askPermission } from './permissions.ts'
+import { runTool } from './tools.ts'
 import { SessionRegistry, type SessionEntry } from './sessions.ts'
 
 export class Daemon {
   readonly conn = db()
   readonly config: Config = loadConfig()
-  readonly t: Strings = strings(loadConfig().locale)
+  readonly t: Strings = strings(this.config.locale)
   readonly sessions = new SessionRegistry()
   readonly pending = new PendingStore()
   readonly startedAt = Date.now()
@@ -377,13 +379,31 @@ export class Daemon {
     entry.state = 'done'
 
     if (snap && entry.stream) {
-      await entry.stream.finish(snap)
-    } else if (snap && entry.chatId && this.config.mirror === 'full') {
-      // Streaming is off, so the whole turn lands as one message at the end.
-      await this.sendRich(entry.chatId, entry.threadId, snap.prose.join('\n\n') || null)
+      // An interrupted turn leaves nothing to persist; committing the draft
+      // would put a bare "turn complete" in the topic.
+      if (hasContent(snap)) await entry.stream.finish(snap)
+      else entry.stream.cancel()
+    } else if (snap && entry.chatId && this.config.mirror === 'full' && hasContent(snap)) {
+      // Streaming is off, so the whole turn — prose and tool trail — lands as
+      // one message at the end.
+      await this.sendTurn(entry.chatId, entry.threadId, snap)
     }
     entry.stream = undefined
     this.drawHud(entry, 'done')
+  }
+
+  /** Post a finished turn as one rich message. */
+  private async sendTurn(chatId: string, threadId: number | undefined, snap: TurnSnapshot): Promise<void> {
+    const doc = renderTurn({ ...snap, complete: true }, { t: this.t, locale: this.localeFor(chatId) })
+    try {
+      await this.api.sendRichMessage({
+        chat_id: chatId,
+        message_thread_id: threadId,
+        rich_message: doc.toInputRichMessage(),
+      })
+    } catch (err) {
+      this.topics.noteSendFailure(chatId, threadId, err)
+    }
   }
 
   private async onTitle(sessionId: string, title: string): Promise<void> {
@@ -397,9 +417,11 @@ export class Daemon {
 
   drawHud(entry: SessionEntry, state: SessionEntry['state']): void {
     entry.state = state
-    if (!this.config.pinnedStatus || !entry.chatId || entry.threadId === undefined) return
+    if (!this.config.pinnedStatus || !entry.chatId) return
+    // Thread 0 is the chat itself, which is where a flat-mode session posts.
+    // Without this a bot with topic mode off would have no status at all.
     this.hud.schedule(
-      { chatId: entry.chatId, threadId: entry.threadId },
+      { chatId: entry.chatId, threadId: entry.threadId ?? 0 },
       this.localeFor(entry.chatId),
       {
         data: {
@@ -513,22 +535,29 @@ export class Daemon {
 
   /* ------------------------------------------------------- tools + prompts -- */
 
-  private async runTool(
+  private runTool(
     sessionId: string | undefined,
     name: string,
     args: Record<string, unknown>,
   ): Promise<string> {
-    const { runTool } = await import('./tools.ts')
     return runTool(this, sessionId, name, args)
   }
 
-  private async onPermissionRequest(
+  private onPermissionRequest(
     sessionId: string,
     msg: Extract<ClientMsg, { t: 'permission_request' }>,
   ): Promise<void> {
-    const { askPermission } = await import('./permissions.ts')
-    await askPermission(this, sessionId, msg)
+    return askPermission(this, sessionId, msg)
   }
+}
+
+/**
+ * Did the turn produce anything worth posting? A turn that ended with no prose
+ * and no tool calls — an interrupt, or a prompt the model declined — would
+ * otherwise post a bare "turn complete" into the topic.
+ */
+function hasContent(snap: TurnSnapshot): boolean {
+  return snap.prose.length > 0 || snap.tools.length > 0
 }
 
 /** Does a pid still exist? Signal 0 checks without delivering anything. */
