@@ -37832,6 +37832,7 @@ import { existsSync as existsSync8 } from "fs";
 // src/commands/setup.ts
 init_config();
 init_paths();
+init_self();
 init_access();
 import { spawnSync } from "child_process";
 import { createInterface } from "readline/promises";
@@ -37882,10 +37883,10 @@ function installHooks(command2) {
 
 // src/commands/setup.ts
 function hookCommand() {
-  const onPath = spawnSync("command", ["-v", "cctg"], { shell: true, encoding: "utf8" }).status === 0;
-  if (onPath)
+  if (spawnSync("command", ["-v", "cctg"], { shell: true }).status === 0)
     return "cctg hook";
-  return `bun ${new URL("../../hooks/hook.ts", import.meta.url).pathname}`;
+  const { exec, script } = selfEntry();
+  return `${exec} ${script} hook`;
 }
 var CHANNEL_FLAG2 = "claude --channels plugin:claude-telegram@claude-telegram";
 async function setup(args) {

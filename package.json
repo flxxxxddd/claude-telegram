@@ -9,7 +9,6 @@
   "files": [
     "dist",
     "plugin",
-    "hooks",
     "README.md"
   ],
   "scripts": {

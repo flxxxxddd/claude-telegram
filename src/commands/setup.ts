@@ -10,20 +10,24 @@ import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
 import { botToken, loadConfig, looksLikeToken, saveBotToken, saveConfig } from '../config.ts'
 import { paths } from '../paths.ts'
+import { selfEntry } from '../self.ts'
 import { loadAccess } from '../store/access.ts'
 import { bad, bold, cyan, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
 import { HOOK_EVENTS, hooksInstalled, installHooks, settingsPath } from './settings-file.ts'
 
 /**
- * The hook command written into `settings.json`. `cctg` is preferred — it
- * survives the plugin being moved or reinstalled — and the plugin-local path is
- * used when `cctg` is not on the PATH.
+ * The hook command written into `settings.json`.
+ *
+ * `cctg hook` is preferred — it survives this artifact being moved or rebuilt.
+ * Without `cctg` on the PATH the entry that is running right now is named
+ * instead, which is the source file in development and the bundle after a
+ * build; either way it is a file that exists.
  */
 export function hookCommand(): string {
-  const onPath = spawnSync('command', ['-v', 'cctg'], { shell: true, encoding: 'utf8' }).status === 0
-  if (onPath) return 'cctg hook'
-  return `bun ${new URL('../../hooks/hook.ts', import.meta.url).pathname}`
+  if (spawnSync('command', ['-v', 'cctg'], { shell: true }).status === 0) return 'cctg hook'
+  const { exec, script } = selfEntry()
+  return `${exec} ${script} hook`
 }
 
 /** The flag a session needs before any of this does anything. */
