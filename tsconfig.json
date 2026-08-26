@@ -4,12 +4,13 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "noEmit": true,
+    "types": ["bun-types"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "esModuleInterop": true
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["*.ts"]
+  "include": ["src", "hooks", "scripts"]
 }
