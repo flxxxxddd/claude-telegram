@@ -54,10 +54,10 @@ thread. Skip it and the bridge still works, one session per chat.
 /plugin install claude-telegram@claude-telegram
 ```
 
-Or as a CLI:
+Or just the CLI:
 
 ```sh
-bun add -g claude-telegram
+bun add -g claude-code-telegram    # the npm name; `claude-telegram` was taken
 ```
 
 **4. Set it up.**

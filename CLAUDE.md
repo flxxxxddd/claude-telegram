@@ -2,7 +2,8 @@
 
 `cctg` bridges Claude Code and Telegram: one daemon per bot token, a topic per
 project, and the whole turn mirrored into it as it happens. TypeScript, run and
-built with Bun, shipped as an npm package and as a Claude Code plugin.
+built with Bun, shipped as a Claude Code plugin and — because `claude-telegram`
+was already taken on the registry — as the npm package `claude-code-telegram`.
 
 ## The one thing to understand
 
