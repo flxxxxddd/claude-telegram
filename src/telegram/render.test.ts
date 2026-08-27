@@ -99,3 +99,40 @@ describe('renderHud', () => {
     expect(html).toContain('Модель')
   })
 })
+
+describe('renderHud with a cca account', () => {
+  const account = {
+    name: 'work',
+    dir: '/p/work',
+    active: true,
+    session: { utilization: 92, resetsAt: Date.now() + 5_400_000 },
+    weekly: { utilization: 30 },
+  }
+
+  test('carries the account and both windows', () => {
+    const html = renderHud({ state: 'working', project: 'p', account }, en).content
+    expect(html).toContain('Account')
+    expect(html).toContain('work')
+    expect(html).toContain('Session limit')
+    expect(html).toContain('Weekly limit')
+  })
+
+  test('a window near its limit is marked, so the number is not read at a glance alone', () => {
+    const html = renderHud({ state: 'working', project: 'p', account }, en).content
+    expect(html).toContain('🟡 92%')
+    expect(html).toContain('🟢 30%')
+  })
+
+  test('a spent window is marked red', () => {
+    const spent = { ...account, session: { utilization: 100 } }
+    expect(renderHud({ state: 'working', project: 'p', account: spent }, en).content).toContain('🔴 100%')
+  })
+
+  test('a machine without cca gets exactly the table it had before', () => {
+    // The account rows are additive: nothing about the existing status changes
+    // for someone who has never installed cca.
+    const html = renderHud({ state: 'idle', project: 'p' }, en).content
+    expect(html).not.toContain('Account')
+    expect(html).not.toContain('Session limit')
+  })
+})
