@@ -16,6 +16,7 @@ import type { Api } from 'yaebal'
 import type { Config } from '../config.ts'
 import { projectName } from '../paths.ts'
 import { topics } from '../store/repos.ts'
+import { isMissingTopic } from './errors.ts'
 
 /** A topic name Telegram will accept: 1–128 characters, no newlines. */
 export function topicName(cwd: string, title?: string): string {
@@ -30,16 +31,6 @@ export function iconColorFor(cwd: string): number {
   let hash = 0
   for (const ch of cwd) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0
   return ICON_COLORS[hash % ICON_COLORS.length] as number
-}
-
-/**
- * A topic id Telegram has since forgotten — the user deleted the thread. The
- * daemon drops its record so the next message opens a fresh one instead of
- * failing on a dead id forever.
- */
-function isMissingTopic(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return /TOPIC_(DELETED|ID_INVALID)|message thread not found|TOPIC_CLOSED/i.test(msg)
 }
 
 export class TopicManager {

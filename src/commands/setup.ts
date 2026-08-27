@@ -32,8 +32,8 @@ export function hookCommand(): string {
 }
 
 /** The flag a session needs before any of this does anything. */
-export const CHANNEL_FLAG =
-  'claude --channels plugin:claude-telegram@claude-telegram --dangerously-load-development-channels'
+export const CHANNEL_FLAG = 'claude --channels plugin:claude-telegram@claude-telegram '
+  + '--dangerously-load-development-channels plugin:claude-telegram@claude-telegram'
 
 export async function setup(args: string[]): Promise<number> {
   const hooksOnly = args.includes('--hooks')

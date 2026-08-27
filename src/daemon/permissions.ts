@@ -30,16 +30,20 @@ export async function askPermission(
   const locale = d.localeFor(chatId)
   if (entry) d.drawHud(entry, 'waiting')
 
+  // A ticket of our own: Claude Code's request id has no documented bound, and
+  // a long one would overflow the 64-byte button payload — leaving a request
+  // nobody can answer.
+  const ticket = crypto.randomUUID().slice(0, 8)
   const doc = renderPermission(msg.tool_name, msg.input_preview, { t: d.t, locale })
   try {
     const sent = await d.api.sendRichMessage({
       chat_id: chatId,
       message_thread_id: entry?.threadId,
       rich_message: doc.toInputRichMessage(),
-      reply_markup: permissionKeyboard(msg.request_id, d.t, locale),
+      reply_markup: permissionKeyboard(ticket, d.t, locale),
     })
     d.pending.addPermission(
-      { id: msg.request_id, sessionId, tool: msg.tool_name, chatId, messageId: sent.message_id },
+      { id: ticket, requestId: msg.request_id, sessionId, tool: msg.tool_name, chatId, messageId: sent.message_id },
       expired => {
         void d.api.editMessageReplyMarkup({ chat_id: expired.chatId, message_id: expired.messageId ?? 0 })
           .catch(() => undefined)
@@ -57,14 +61,14 @@ export async function askPermission(
  */
 export function answerPermission(
   d: Daemon,
-  requestId: string,
+  ticket: string,
   behavior: 'allow' | 'deny',
 ): { tool: string } | null {
-  const pending = d.pending.takePermission(requestId)
+  const pending = d.pending.takePermission(ticket)
   if (!pending) return null
   const entry = d.sessions.get(pending.sessionId)
   if (!entry) return null
-  entry.send({ t: 'permission_reply', request_id: requestId, behavior })
+  entry.send({ t: 'permission_reply', request_id: pending.requestId, behavior })
   d.drawHud(entry, 'working')
   return { tool: pending.tool }
 }

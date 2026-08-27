@@ -13,13 +13,7 @@ export const en = {
     denied: 'Not allowed.',
   },
   help: {
-    body: 'Send text to talk to the session bound to this chat.\n\n'
-      + '/status — what the session is doing\n'
-      + '/sessions — pick which session this chat routes to\n'
-      + '/new — open a project topic and start a session\n'
-      + '/settings — model, effort and permissions\n'
-      + '/accounts — which Claude.ai account sessions here use\n'
-      + '/lang — switch language',
+    body: 'Type here and it reaches the session this topic belongs to.',
   },
   hud: {
     title: 'Claude Code',

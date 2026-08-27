@@ -62,5 +62,13 @@ export const MANAGED_SETTINGS_PATHS = process.platform === 'darwin'
   ? ['/Library/Application Support/ClaudeCode/managed-settings.json']
   : ['/etc/claude-code/managed-settings.json']
 
-/** The flag that lifts the inbound gate for one session. */
-export const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels'
+/**
+ * The flag that lifts the inbound gate for one session.
+ *
+ * It takes the same tagged entry `--channels` does; passing it bare fails with
+ * `option '--dangerously-load-development-channels <servers...>' argument
+ * missing`. It is also ignored entirely under `--print`, where there is no
+ * interactive session for a message to reach.
+ */
+export const DEV_CHANNELS_FLAG =
+  '--dangerously-load-development-channels plugin:claude-telegram@claude-telegram'

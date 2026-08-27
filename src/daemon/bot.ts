@@ -13,6 +13,8 @@ import { paths } from '../paths.ts'
 import { gateDm, gateGroup, loadAccess, mintPairingCode, pruneExpired, saveAccess } from '../store/access.ts'
 import { bindings, handles, queue, settings } from '../store/repos.ts'
 import {
+  ACCOUNT_BEST,
+  ACCOUNT_INHERIT,
   accountCb,
   askCb,
   closeCb,
@@ -37,6 +39,7 @@ import {
   settingsRootKeyboard,
   startKeyboard,
 } from '../telegram/keyboards.ts'
+import { menuHelp } from '../telegram/menu.ts'
 import { renderHud, renderText } from '../telegram/render.ts'
 import { launch } from './launcher.ts'
 import type { Daemon } from './index.ts'
@@ -48,24 +51,36 @@ const chatIdOf = (ctx: Ctx): string => String(ctx.chat?.id ?? '')
 const threadIdOf = (ctx: Ctx): number | undefined => ctx.messageThreadId
 const isPrivate = (ctx: Ctx): boolean => ctx.chat?.type === 'private'
 
-export function installHandlers(bot: Bot, d: Daemon): void {
+/**
+ * Wire every handler. Returns the command names it registered, so the menu
+ * pushed to Telegram can be checked against what actually answers — a menu
+ * entry with no handler is a dead end the user finds by tapping it.
+ */
+export function installHandlers(bot: Bot, d: Daemon): string[] {
   const say = (ctx: Ctx, text: string) => d.sendRich(chatIdOf(ctx), threadIdOf(ctx), text)
   const tr = (ctx: Ctx) => d.localeFor(chatIdOf(ctx))
 
+  const registered: string[] = []
+  const command: typeof bot.command = (name, ...handlers) => {
+    registered.push(name)
+    return bot.command(name, ...handlers)
+  }
+
   /* ------------------------------------------------------------ commands -- */
 
-  bot.command('start', async ctx => {
+  command('start', async ctx => {
     const locale = tr(ctx)
     if (!(await allowed(d, ctx))) return
     await say(ctx, d.t.t(locale, 'start.greet'))
   })
 
-  bot.command('help', async ctx => {
+  command('help', async ctx => {
     if (!(await allowed(d, ctx))) return
-    await say(ctx, d.t.t(tr(ctx), 'help.body'))
+    const locale = tr(ctx)
+    await say(ctx, `${d.t.t(locale, 'help.body')}\n\n${menuHelp(locale)}`)
   })
 
-  bot.command('status', async ctx => {
+  command('status', async ctx => {
     if (!(await allowed(d, ctx))) return
     const chatId = chatIdOf(ctx)
     const locale = tr(ctx)
@@ -96,7 +111,7 @@ export function installHandlers(bot: Bot, d: Daemon): void {
     })
   })
 
-  bot.command('sessions', async ctx => {
+  command('sessions', async ctx => {
     if (!(await allowed(d, ctx))) return
     const chatId = chatIdOf(ctx)
     const locale = tr(ctx)
@@ -113,7 +128,7 @@ export function installHandlers(bot: Bot, d: Daemon): void {
     })
   })
 
-  bot.command('new', async ctx => {
+  command('new', async ctx => {
     if (!(await allowed(d, ctx))) return
     const chatId = chatIdOf(ctx)
     const locale = tr(ctx)
@@ -134,7 +149,7 @@ export function installHandlers(bot: Bot, d: Daemon): void {
     })
   })
 
-  bot.command('settings', async ctx => {
+  command('settings', async ctx => {
     if (!(await allowed(d, ctx))) return
     const chatId = chatIdOf(ctx)
     const locale = tr(ctx)
@@ -152,7 +167,7 @@ export function installHandlers(bot: Bot, d: Daemon): void {
     })
   })
 
-  bot.command('accounts', async ctx => {
+  command('accounts', async ctx => {
     if (!(await allowed(d, ctx))) return
     const chatId = chatIdOf(ctx)
     const locale = tr(ctx)
@@ -170,7 +185,14 @@ export function installHandlers(bot: Bot, d: Daemon): void {
       chat_id: chatId,
       message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, 'accounts.pick')).toInputRichMessage(),
-      reply_markup: accountsKeyboard(handles.of(d.conn, cwd), list, d.settingsFor(cwd).account, d.t, locale),
+      reply_markup: accountsKeyboard(
+        handles.of(d.conn, cwd),
+        list,
+        d.settingsFor(cwd).account,
+        name => handles.of(d.conn, name),
+        d.t,
+        locale,
+      ),
     })
   })
 
@@ -182,9 +204,18 @@ export function installHandlers(bot: Bot, d: Daemon): void {
       await ctx.answerCallbackQuery({ text: d.t.t(locale, 'permission.expired') })
       return
     }
-    // An empty name clears the choice: sessions then run as cca's own active
-    // profile, which is what someone who never opened this panel gets.
-    const chosen = ctx.queryData.name || null
+    // The button carries a handle, not a name — a long profile name would not
+    // fit the 64-byte payload. The two sentinels are literal and need no lookup.
+    const raw = ctx.queryData.a
+    const chosen = raw === ACCOUNT_INHERIT
+      ? null
+      : raw === ACCOUNT_BEST
+        ? BEST_ACCOUNT
+        : handles.get(d.conn, raw)
+    if (raw !== ACCOUNT_INHERIT && chosen === null) {
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, 'permission.expired') })
+      return
+    }
     settings.patch(d.conn, cwd, { account: chosen })
     const label = chosen === BEST_ACCOUNT
       ? d.t.t(locale, 'accounts.best')
@@ -206,11 +237,18 @@ export function installHandlers(bot: Bot, d: Daemon): void {
 
     await ctx.answerCallbackQuery({ text: d.t.t(locale, 'accounts.chosen', { name: label }) })
     await ctx.editReplyMarkup({
-      reply_markup: accountsKeyboard(ctx.queryData.h, ccaAccounts(), chosen, d.t, locale),
+      reply_markup: accountsKeyboard(
+        ctx.queryData.h,
+        ccaAccounts(),
+        chosen,
+        name => handles.of(d.conn, name),
+        d.t,
+        locale,
+      ),
     }).catch(() => undefined)
   })
 
-  bot.command('lang', async ctx => {
+  command('lang', async ctx => {
     if (!(await allowed(d, ctx))) return
     const locale = tr(ctx)
     await d.api.sendRichMessage({
@@ -360,6 +398,8 @@ export function installHandlers(bot: Bot, d: Daemon): void {
   bot.on('message:document', async ctx => {
     await routeInbound(d, ctx, ctx.message?.caption ?? '')
   })
+
+  return registered
 }
 
 /* ---------------------------------------------------------------- helpers -- */

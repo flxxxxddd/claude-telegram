@@ -49,6 +49,13 @@ export async function doctor(): Promise<number> {
           text: 'topic mode is off, so every chat carries one session at a time',
           fix: 'in @BotFather: Bot Settings → Topic Mode → Enable, then `cctg daemon restart`',
         })
+    if (live.blockedChats.length) {
+      checks.push({
+        level: 'bad',
+        text: `the bot is blocked in ${live.blockedChats.length} chat(s) — nothing can be delivered`,
+        fix: `unblock @${live.botUsername} in Telegram, then send it any message`,
+      })
+    }
     checks.push({
       level: live.sessions.length ? 'ok' : 'warn',
       text: `${live.sessions.length} session(s) connected`,

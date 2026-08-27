@@ -18,7 +18,10 @@ export type PendingAsk = {
 }
 
 export type PendingPermission = {
+  /** The short ticket the buttons carry. */
   id: string
+  /** Claude Code's own request id, which is what the answer must name. */
+  requestId: string
   sessionId: string
   tool: string
   chatId: string

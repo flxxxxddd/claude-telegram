@@ -15,11 +15,25 @@ import type { Config } from '../config.ts'
 import { projectName } from '../paths.ts'
 import type { ProjectSettings } from '../db.ts'
 
-/** The channel flag a session needs for the bridge to see it at all. */
-export const CHANNEL_FLAG = '--channels plugin:claude-telegram@claude-telegram'
+/**
+ * How a session names this bridge on the command line.
+ *
+ * Channel entries are tagged: `plugin:<name>@<marketplace>` for one a plugin
+ * provides, `server:<name>` for a hand-configured MCP server. Both flags take
+ * the same tagged form, space-separated.
+ */
+export const CHANNEL_ID = 'plugin:claude-telegram@claude-telegram'
 
-/** Without this, Claude Code silently drops everything typed to the bot. */
-export const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels'
+/** The flag that registers this session for inbound messages. */
+export const CHANNEL_FLAG = `--channels ${CHANNEL_ID}`
+
+/**
+ * Without this, Claude Code drops everything typed to the bot: only channel
+ * plugins on its own approved list may inject messages. It takes the same
+ * tagged entry as `--channels` — passing it bare is an option-parse error —
+ * and it makes Claude Code show a confirmation dialog at startup.
+ */
+export const DEV_CHANNELS_FLAG = `--dangerously-load-development-channels ${CHANNEL_ID}`
 
 /** Shell-quote a value so a path with a space cannot split into two arguments. */
 export function shellQuote(value: string): string {

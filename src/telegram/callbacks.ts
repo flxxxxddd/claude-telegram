@@ -10,7 +10,13 @@
 
 import { callbackData, field } from 'yaebal'
 
-/** Answer a permission request: allow or deny the tool Claude asked about. */
+/**
+ * Answer a permission request: allow or deny the tool Claude asked about.
+ *
+ * `id` is a ticket this daemon mints, not Claude Code's `request_id` — that
+ * value is not ours and nothing bounds its length, and an overflow here would
+ * mean a request the user cannot answer at all.
+ */
 export const permissionCb = callbackData('p', {
   id: field.string(),
   allow: Boolean,
@@ -46,14 +52,26 @@ export const langCb = callbackData('l', {
   locale: field.enum(['en', 'ru'] as const),
 })
 
-/** Choose the cca account sessions in this project launch as. */
+/**
+ * Choose the cca account sessions in this project launch as.
+ *
+ * The account travels as a handle, not as its name: profile names are
+ * user-chosen and a long one overflows the 64-byte cap, which `pack` reports by
+ * throwing — taking the whole keyboard down rather than one button.
+ */
 export const accountCb = callbackData('c', {
+  /** Handle for the project's path. */
   h: field.string(),
-  /** A profile name, `@best`, or empty to inherit whatever cca is set to. */
-  name: field.string(),
+  /** Handle for the profile name, or one of the sentinels below. */
+  a: field.string(),
   /** Also start a session on it — the limit warning's button does. */
   launch: field.boolean().default(false),
 })
+
+/** Use whichever account has room; passed to `cca run --best`. */
+export const ACCOUNT_BEST = '*'
+/** Clear the choice and run as whatever cca's own active profile is. */
+export const ACCOUNT_INHERIT = ''
 
 /** Dismiss a panel without changing anything. */
 export const closeCb = callbackData('x', {})

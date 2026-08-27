@@ -10289,14 +10289,7 @@ Run this in your Claude Code session:
       denied: "Not allowed."
     },
     help: {
-      body: `Send text to talk to the session bound to this chat.
-
-` + `/status \u2014 what the session is doing
-` + `/sessions \u2014 pick which session this chat routes to
-` + `/new \u2014 open a project topic and start a session
-` + `/settings \u2014 model, effort and permissions
-` + `/accounts \u2014 which Claude.ai account sessions here use
-` + "/lang \u2014 switch language"
+      body: "Type here and it reaches the session this topic belongs to."
     },
     hud: {
       title: "Claude Code",
@@ -10404,14 +10397,7 @@ var init_ru = __esm(() => {
       denied: "\u0414\u043E\u0441\u0442\u0443\u043F \u0437\u0430\u043F\u0440\u0435\u0449\u0451\u043D."
     },
     help: {
-      body: `\u041F\u0438\u0448\u0438\u0442\u0435 \u0442\u0435\u043A\u0441\u0442\u043E\u043C \u2014 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0443\u0439\u0434\u0451\u0442 \u0432 \u0441\u0435\u0441\u0441\u0438\u044E, \u043F\u0440\u0438\u0432\u044F\u0437\u0430\u043D\u043D\u0443\u044E \u043A \u044D\u0442\u043E\u043C\u0443 \u0447\u0430\u0442\u0443.
-
-` + `/status \u2014 \u0447\u0435\u043C \u0437\u0430\u043D\u044F\u0442\u0430 \u0441\u0435\u0441\u0441\u0438\u044F
-` + `/sessions \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u044E \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0447\u0430\u0442\u0430
-` + `/new \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0442\u043E\u043F\u0438\u043A \u043F\u0440\u043E\u0435\u043A\u0442\u0430 \u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u044E
-` + `/settings \u2014 \u043C\u043E\u0434\u0435\u043B\u044C, effort \u0438 \u043F\u0440\u0430\u0432\u0430
-` + `/accounts \u2014 \u043F\u043E\u0434 \u043A\u0430\u043A\u0438\u043C \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u043C Claude.ai \u0438\u0434\u0443\u0442 \u0441\u0435\u0441\u0441\u0438\u0438
-` + "/lang \u2014 \u0441\u043C\u0435\u043D\u0438\u0442\u044C \u044F\u0437\u044B\u043A"
+      body: "\u041F\u0438\u0448\u0438\u0442\u0435 \u0441\u044E\u0434\u0430 \u2014 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0435 \u0443\u0439\u0434\u0451\u0442 \u0432 \u0441\u0435\u0441\u0441\u0438\u044E, \u043A\u043E\u0442\u043E\u0440\u043E\u0439 \u043F\u0440\u0438\u043D\u0430\u0434\u043B\u0435\u0436\u0438\u0442 \u044D\u0442\u043E\u0442 \u0442\u043E\u043F\u0438\u043A."
     },
     hud: {
       title: "Claude Code",
@@ -11089,7 +11075,7 @@ var init_repos = __esm(() => {
 });
 
 // src/telegram/callbacks.ts
-var permissionCb, askCb, sessionCb, projectCb, settingsCb, langCb, accountCb, closeCb;
+var permissionCb, askCb, sessionCb, projectCb, settingsCb, langCb, accountCb, ACCOUNT_BEST = "*", ACCOUNT_INHERIT = "", closeCb;
 var init_callbacks = __esm(() => {
   init_lib16();
   permissionCb = callbackData("p", {
@@ -11117,7 +11103,7 @@ var init_callbacks = __esm(() => {
   });
   accountCb = callbackData("c", {
     h: field.string(),
-    name: field.string(),
+    a: field.string(),
     launch: field.boolean().default(false)
   });
   closeCb = callbackData("x", {});
@@ -11793,21 +11779,21 @@ function settingsPageKeyboard(handle2, page, values, current, t, locale) {
   }
   return kb.columns().row().text(`\u2190 ${t.t(locale, "controls.back")}`, settingsCb.pack({ h: handle2, page: "root" }));
 }
-function accountsKeyboard(handle2, list2, current, t, locale) {
+function accountsKeyboard(handle2, list2, current, handleFor, t, locale) {
   const kb = new InlineKeyboard;
   const mark = (value) => value === current ? "\u25CF " : "";
-  kb.text(`${mark(BEST_ACCOUNT)}\u2728 ${t.t(locale, "accounts.best")}`, accountCb.pack({ h: handle2, name: BEST_ACCOUNT })).row();
+  kb.text(`${mark(BEST_ACCOUNT)}\u2728 ${t.t(locale, "accounts.best")}`, accountCb.pack({ h: handle2, a: ACCOUNT_BEST })).row();
   for (const a of list2) {
     const window = tightestWindow(a);
     const dot = window === undefined ? "\u26AA" : window.utilization >= 100 ? "\uD83D\uDD34" : window.utilization >= 80 ? "\uD83D\uDFE1" : "\uD83D\uDFE2";
     const detail = formatWindow(window);
-    kb.text(`${mark(a.name)}${dot} ${a.name}${detail ? ` \xB7 ${detail}` : ""}`.slice(0, 64), accountCb.pack({ h: handle2, name: a.name })).row();
+    kb.text(`${mark(a.name)}${dot} ${a.name}${detail ? ` \xB7 ${detail}` : ""}`.slice(0, 64), accountCb.pack({ h: handle2, a: handleFor(a.name) })).row();
   }
-  kb.text(`${mark("")}${t.t(locale, "accounts.inherit")}`, accountCb.pack({ h: handle2, name: "" })).row();
+  kb.text(`${mark(null)}${t.t(locale, "accounts.inherit")}`, accountCb.pack({ h: handle2, a: ACCOUNT_INHERIT })).row();
   return kb.text(`\u2716 ${t.t(locale, "controls.close")}`, closeCb.pack({}));
 }
-function restartOnKeyboard(handle2, name, t, locale) {
-  return new InlineKeyboard().text(`\u25B6\uFE0F ${t.t(locale, "accounts.restartOn", { name })}`, accountCb.pack({ h: handle2, name, launch: true })).style("primary");
+function restartOnKeyboard(handle2, name, accountHandle, t, locale) {
+  return new InlineKeyboard().text(`\u25B6\uFE0F ${t.t(locale, "accounts.restartOn", { name })}`, accountCb.pack({ h: handle2, a: accountHandle, launch: true })).style("primary");
 }
 function langKeyboard(current) {
   const kb = new InlineKeyboard;
@@ -11835,16 +11821,19 @@ class Hud {
   topics;
   t;
   log;
+  onSendError;
   pending = new Map;
   timers = new Map;
   lastEdit = new Map;
   lastDrawn = new Map;
-  constructor(api, conn, topics2, t, log) {
+  warnedPinFailure = new Set;
+  constructor(api, conn, topics2, t, log, onSendError) {
     this.api = api;
     this.conn = conn;
     this.topics = topics2;
     this.t = t;
     this.log = log;
+    this.onSendError = onSendError;
   }
   key(target) {
     return `${target.chatId}:${target.threadId}`;
@@ -11895,12 +11884,17 @@ class Hud {
           chat_id: target.chatId,
           message_id: sent.message_id,
           disable_notification: true
-        }).catch(() => {
-          return;
+        }).catch((err) => {
+          if (this.warnedPinFailure.has(key))
+            return;
+          this.warnedPinFailure.add(key);
+          this.log(`status posted but could not be pinned in ${key}: ${String(err)}`);
         });
       }
       this.lastDrawn.set(key, doc.content);
     } catch (err) {
+      if (this.onSendError(target.chatId, err))
+        return;
       if (this.topics.noteSendFailure(target.chatId, target.threadId, err)) {
         hud.clear(this.conn, target.chatId, target.threadId);
         this.lastDrawn.delete(key);
@@ -11935,6 +11929,53 @@ var init_hud = __esm(() => {
   init_repos();
   init_keyboards();
   init_render2();
+});
+
+// src/telegram/errors.ts
+function isBlocked(err) {
+  return /\b403\b|bot was blocked by the user|user is deactivated|bot can't initiate conversation|chat not found/i.test(text2(err));
+}
+function isMissingTopic(err) {
+  return /TOPIC_(DELETED|ID_INVALID)|message thread not found|TOPIC_CLOSED/i.test(text2(err));
+}
+var text2 = (err) => err instanceof Error ? err.message : String(err);
+
+// src/telegram/menu.ts
+function menuHelp(locale) {
+  return MENU.map((entry) => `/${entry.name} \u2014 ${locale === "ru" ? entry.description.ru : entry.description.default}`).join(`
+`);
+}
+async function pushMenu(api, registered, log) {
+  const live = MENU.filter((entry) => {
+    if (registered.includes(entry.name))
+      return true;
+    log(`menu entry /${entry.name} has no handler \u2014 not publishing it`);
+    return false;
+  });
+  const push = async (languageCode, pick) => {
+    await api.setMyCommands({
+      commands: live.map((entry) => ({ command: entry.name, description: pick(entry) })),
+      ...languageCode ? { language_code: languageCode } : {}
+    });
+  };
+  try {
+    await push(undefined, (e) => e.description.default);
+    await push("ru", (e) => e.description.ru);
+  } catch (err) {
+    log(`could not publish the command menu: ${String(err)}`);
+  }
+}
+var MENU;
+var init_menu = __esm(() => {
+  MENU = [
+    { name: "status", description: { default: "what the session is doing", ru: "\u0447\u0435\u043C \u0437\u0430\u043D\u044F\u0442\u0430 \u0441\u0435\u0441\u0441\u0438\u044F" } },
+    { name: "sessions", description: { default: "pick the session this chat talks to", ru: "\u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u044E \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0447\u0430\u0442\u0430" } },
+    { name: "new", description: { default: "open a project, or start a session in one", ru: "\u043E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0440\u043E\u0435\u043A\u0442 \u0438\u043B\u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0432 \u043D\u0451\u043C \u0441\u0435\u0441\u0441\u0438\u044E" } },
+    { name: "settings", description: { default: "model, effort and permissions", ru: "\u043C\u043E\u0434\u0435\u043B\u044C, effort \u0438 \u043F\u0440\u0430\u0432\u0430" } },
+    { name: "accounts", description: { default: "which Claude.ai account sessions use", ru: "\u043F\u043E\u0434 \u043A\u0430\u043A\u0438\u043C \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u043C Claude.ai \u0438\u0434\u0443\u0442 \u0441\u0435\u0441\u0441\u0438\u0438" } },
+    { name: "lang", description: { default: "switch language", ru: "\u0441\u043C\u0435\u043D\u0438\u0442\u044C \u044F\u0437\u044B\u043A" } },
+    { name: "help", description: { default: "what all of this does", ru: "\u0447\u0442\u043E \u0432\u0441\u0451 \u044D\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0442" } }
+  ];
 });
 
 // src/telegram/stream.ts
@@ -12086,10 +12127,6 @@ function iconColorFor(cwd) {
   for (const ch of cwd)
     hash = hash * 31 + ch.charCodeAt(0) >>> 0;
   return ICON_COLORS[hash % ICON_COLORS.length];
-}
-function isMissingTopic(err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /TOPIC_(DELETED|ID_INVALID)|message thread not found|TOPIC_CLOSED/i.test(msg);
 }
 
 class TopicManager {
@@ -12259,10 +12296,12 @@ function launch(cwd, config, settings2) {
     return { spawned: false, reason: "failed", command: command2, detail: err instanceof Error ? err.message : String(err) };
   }
 }
-var CHANNEL_FLAG = "--channels plugin:claude-telegram@claude-telegram", DEV_CHANNELS_FLAG = "--dangerously-load-development-channels";
+var CHANNEL_ID = "plugin:claude-telegram@claude-telegram", CHANNEL_FLAG, DEV_CHANNELS_FLAG;
 var init_launcher = __esm(() => {
   init_cca();
   init_paths();
+  CHANNEL_FLAG = `--channels ${CHANNEL_ID}`;
+  DEV_CHANNELS_FLAG = `--dangerously-load-development-channels ${CHANNEL_ID}`;
 });
 
 // src/daemon/permissions.ts
@@ -12276,15 +12315,16 @@ async function askPermission(d, sessionId, msg) {
   const locale = d.localeFor(chatId2);
   if (entry)
     d.drawHud(entry, "waiting");
+  const ticket = crypto.randomUUID().slice(0, 8);
   const doc = renderPermission(msg.tool_name, msg.input_preview, { t: d.t, locale });
   try {
     const sent = await d.api.sendRichMessage({
       chat_id: chatId2,
       message_thread_id: entry?.threadId,
       rich_message: doc.toInputRichMessage(),
-      reply_markup: permissionKeyboard(msg.request_id, d.t, locale)
+      reply_markup: permissionKeyboard(ticket, d.t, locale)
     });
-    d.pending.addPermission({ id: msg.request_id, sessionId, tool: msg.tool_name, chatId: chatId2, messageId: sent.message_id }, (expired) => {
+    d.pending.addPermission({ id: ticket, requestId: msg.request_id, sessionId, tool: msg.tool_name, chatId: chatId2, messageId: sent.message_id }, (expired) => {
       d.api.editMessageReplyMarkup({ chat_id: expired.chatId, message_id: expired.messageId ?? 0 }).catch(() => {
         return;
       });
@@ -12293,14 +12333,14 @@ async function askPermission(d, sessionId, msg) {
     d.log(`permission ${msg.request_id} could not be shown: ${String(err)}`);
   }
 }
-function answerPermission(d, requestId, behavior) {
-  const pending = d.pending.takePermission(requestId);
+function answerPermission(d, ticket, behavior) {
+  const pending = d.pending.takePermission(ticket);
   if (!pending)
     return null;
   const entry = d.sessions.get(pending.sessionId);
   if (!entry)
     return null;
-  entry.send({ t: "permission_reply", request_id: requestId, behavior });
+  entry.send({ t: "permission_reply", request_id: pending.requestId, behavior });
   d.drawHud(entry, "working");
   return { tool: pending.tool };
 }
@@ -12311,20 +12351,28 @@ var init_permissions = __esm(() => {
 
 // src/daemon/bot.ts
 function installHandlers(bot, d) {
-  const say = (ctx, text2) => d.sendRich(chatIdOf(ctx), threadIdOf(ctx), text2);
+  const say = (ctx, text3) => d.sendRich(chatIdOf(ctx), threadIdOf(ctx), text3);
   const tr = (ctx) => d.localeFor(chatIdOf(ctx));
-  bot.command("start", async (ctx) => {
+  const registered = [];
+  const command2 = (name, ...handlers) => {
+    registered.push(name);
+    return bot.command(name, ...handlers);
+  };
+  command2("start", async (ctx) => {
     const locale = tr(ctx);
     if (!await allowed(d, ctx))
       return;
     await say(ctx, d.t.t(locale, "start.greet"));
   });
-  bot.command("help", async (ctx) => {
+  command2("help", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    await say(ctx, d.t.t(tr(ctx), "help.body"));
+    const locale = tr(ctx);
+    await say(ctx, `${d.t.t(locale, "help.body")}
+
+${menuHelp(locale)}`);
   });
-  bot.command("status", async (ctx) => {
+  command2("status", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const chatId2 = chatIdOf(ctx);
@@ -12352,7 +12400,7 @@ function installHandlers(bot, d) {
       rich_message: doc.toInputRichMessage()
     });
   });
-  bot.command("sessions", async (ctx) => {
+  command2("sessions", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const chatId2 = chatIdOf(ctx);
@@ -12369,7 +12417,7 @@ function installHandlers(bot, d) {
       reply_markup: sessionsKeyboard(views, bindings.get(d.conn, chatId2), d.t, locale)
     });
   });
-  bot.command("new", async (ctx) => {
+  command2("new", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const chatId2 = chatIdOf(ctx);
@@ -12390,7 +12438,7 @@ function installHandlers(bot, d) {
       })))
     });
   });
-  bot.command("settings", async (ctx) => {
+  command2("settings", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const chatId2 = chatIdOf(ctx);
@@ -12408,7 +12456,7 @@ function installHandlers(bot, d) {
       reply_markup: settingsRootKeyboard(handle2, d.settingsFor(cwd), d.t, locale)
     });
   });
-  bot.command("accounts", async (ctx) => {
+  command2("accounts", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const chatId2 = chatIdOf(ctx);
@@ -12427,7 +12475,7 @@ function installHandlers(bot, d) {
       chat_id: chatId2,
       message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, "accounts.pick")).toInputRichMessage(),
-      reply_markup: accountsKeyboard(handles.of(d.conn, cwd), list2, d.settingsFor(cwd).account, d.t, locale)
+      reply_markup: accountsKeyboard(handles.of(d.conn, cwd), list2, d.settingsFor(cwd).account, (name) => handles.of(d.conn, name), d.t, locale)
     });
   });
   bot.callbackQuery(accountCb, async (ctx) => {
@@ -12438,7 +12486,12 @@ function installHandlers(bot, d) {
       await ctx.answerCallbackQuery({ text: d.t.t(locale, "permission.expired") });
       return;
     }
-    const chosen = ctx.queryData.name || null;
+    const raw = ctx.queryData.a;
+    const chosen = raw === ACCOUNT_INHERIT ? null : raw === ACCOUNT_BEST ? BEST_ACCOUNT : handles.get(d.conn, raw);
+    if (raw !== ACCOUNT_INHERIT && chosen === null) {
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, "permission.expired") });
+      return;
+    }
     settings.patch(d.conn, cwd, { account: chosen });
     const label = chosen === BEST_ACCOUNT ? d.t.t(locale, "accounts.best") : chosen ?? d.t.t(locale, "accounts.inherit");
     if (ctx.queryData.launch) {
@@ -12449,12 +12502,12 @@ function installHandlers(bot, d) {
     }
     await ctx.answerCallbackQuery({ text: d.t.t(locale, "accounts.chosen", { name: label }) });
     await ctx.editReplyMarkup({
-      reply_markup: accountsKeyboard(ctx.queryData.h, accounts(), chosen, d.t, locale)
+      reply_markup: accountsKeyboard(ctx.queryData.h, accounts(), chosen, (name) => handles.of(d.conn, name), d.t, locale)
     }).catch(() => {
       return;
     });
   });
-  bot.command("lang", async (ctx) => {
+  command2("lang", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
     const locale = tr(ctx);
@@ -12582,6 +12635,7 @@ function installHandlers(bot, d) {
   bot.on("message:document", async (ctx) => {
     await routeInbound(d, ctx, ctx.message?.caption ?? "");
   });
+  return registered;
 }
 function projectContext(d, chatId2, threadId) {
   return d.projectFor(chatId2, threadId) ?? d.sessions.get(bindings.get(d.conn, chatId2) ?? "")?.info.cwd ?? d.sessions.mostRecent()?.info.cwd ?? null;
@@ -12613,18 +12667,18 @@ async function allowed(d, ctx) {
   return false;
 }
 function mentionsBot(ctx, username) {
-  const text2 = ctx.message?.text ?? ctx.message?.caption ?? "";
-  if (username && text2.includes(`@${username}`))
+  const text3 = ctx.message?.text ?? ctx.message?.caption ?? "";
+  if (username && text3.includes(`@${username}`))
     return true;
   return ctx.message?.reply_to_message?.from?.is_bot === true;
 }
-async function routeInbound(d, ctx, text2) {
+async function routeInbound(d, ctx, text3) {
   if (!await allowed(d, ctx))
     return;
   const chatId2 = chatIdOf(ctx);
   const threadId = threadIdOf(ctx);
   const locale = d.localeFor(chatId2);
-  const params = inboundParams(ctx, text2);
+  const params = inboundParams(ctx, text3);
   const cwd = d.projectFor(chatId2, threadId);
   const entry = cwd ? d.sessions.forProject(cwd)[0] : d.sessions.get(bindings.get(d.conn, chatId2) ?? "") ?? d.sessions.mostRecent();
   if (!entry) {
@@ -12654,7 +12708,7 @@ async function routeInbound(d, ctx, text2) {
 }
 async function offlineNotice(d, chatId2, threadId, cwd, locale) {
   const depth = queue.depth(d.conn, cwd);
-  const text2 = [
+  const text3 = [
     d.t.t(locale, "project.offline", { name: projectLabel(cwd) }),
     depth ? d.t.t(locale, "project.queued", { n: depth }) : ""
   ].filter(Boolean).join(`
@@ -12662,19 +12716,19 @@ async function offlineNotice(d, chatId2, threadId, cwd, locale) {
   await d.api.sendRichMessage({
     chat_id: chatId2,
     message_thread_id: threadId,
-    rich_message: renderText(text2).toInputRichMessage(),
+    rich_message: renderText(text3).toInputRichMessage(),
     reply_markup: startKeyboard(handles.of(d.conn, cwd), d.t, locale)
   }).catch(() => {
     return;
   });
 }
-function inboundParams(ctx, text2) {
+function inboundParams(ctx, text3) {
   const from = ctx.from;
   const message = ctx.message;
   const photo2 = message?.photo;
   const document3 = message?.document;
   return {
-    content: text2,
+    content: text3,
     meta: {
       chat_id: chatIdOf(ctx),
       ...message?.message_id !== undefined ? { message_id: String(message.message_id) } : {},
@@ -12718,6 +12772,7 @@ var init_bot2 = __esm(() => {
   init_repos();
   init_callbacks();
   init_keyboards();
+  init_menu();
   init_render2();
   init_launcher();
   init_permissions();
@@ -12823,18 +12878,18 @@ async function reply2(d, sessionId, args) {
   const chatId2 = str(args.chat_id) ?? target.chatId;
   if (!chatId2)
     throw new Error("no chat_id, and this session has no chat of its own yet");
-  const text2 = str(args.text) ?? "";
+  const text3 = str(args.text) ?? "";
   const files2 = Array.isArray(args.files) ? args.files.filter((f) => typeof f === "string") : [];
-  if (!text2 && !files2.length)
+  if (!text3 && !files2.length)
     throw new Error("reply needs text, files, or both");
   const threadId = num(args.message_thread_id) ?? target.threadId;
   const replyTo = num(args.reply_to);
   const sent = [];
-  if (text2) {
+  if (text3) {
     const message = await d.api.sendRichMessage({
       chat_id: chatId2,
       message_thread_id: threadId,
-      rich_message: renderText(text2).toInputRichMessage(),
+      rich_message: renderText(text3).toInputRichMessage(),
       ...replyTo ? { reply_parameters: { message_id: replyTo } } : {}
     });
     sent.push(message.message_id);
@@ -12877,13 +12932,13 @@ async function react(d, args) {
 async function editMessage(d, args) {
   const chatId2 = str(args.chat_id);
   const messageId = num(args.message_id);
-  const text2 = str(args.text);
-  if (!chatId2 || !messageId || !text2)
+  const text3 = str(args.text);
+  if (!chatId2 || !messageId || !text3)
     throw new Error("edit_message needs chat_id, message_id and text");
   await d.api.editMessageText({
     chat_id: chatId2,
     message_id: messageId,
-    rich_message: renderText(text2).toInputRichMessage()
+    rich_message: renderText(text3).toInputRichMessage()
   });
   return "edited";
 }
@@ -13029,6 +13084,7 @@ class Daemon {
   locales = kvStore(this.conn, "locale:");
   kv = kvStore(this.conn, "daemon:");
   warnedUnregistered = new Set;
+  blockedChats = new Set;
   async start() {
     try {
       await this.boot();
@@ -13050,7 +13106,7 @@ class Daemon {
     }));
     this.api = this.bot.api;
     this.topics = new TopicManager(this.api, this.conn, this.config);
-    this.hud = new Hud(this.api, this.conn, this.topics, this.t, (msg) => this.log(msg));
+    this.hud = new Hud(this.api, this.conn, this.topics, this.t, (msg) => this.log(msg), (chatId2, err) => this.noteSendError(chatId2, err));
     this.typing = new TypingKeeper(this.api);
     let me;
     try {
@@ -13062,7 +13118,8 @@ class Daemon {
     this.botUsername = me.username ?? "";
     this.threadMode = await this.topics.detect();
     this.log(`bot @${this.botUsername}, threading: ${this.threadMode}`);
-    installHandlers(this.bot, this);
+    const registered = installHandlers(this.bot, this);
+    await pushMenu(this.api, registered, (msg) => this.log(msg));
     this.startSocket();
     await this.bot.start();
     this.log(`daemon ${VERSION} listening on ${paths.sock}`);
@@ -13136,7 +13193,7 @@ class Daemon {
         send({ t: "welcome", botUsername: this.botUsername, version: VERSION, topicsEnabled: this.topics.enabled });
         return;
       case "call":
-        this.runTool(sessionId, msg.name, msg.args).then((text2) => send({ t: "result", cid: msg.cid, ok: true, text: text2 })).catch((err) => send({
+        this.runTool(sessionId, msg.name, msg.args).then((text3) => send({ t: "result", cid: msg.cid, ok: true, text: text3 })).catch((err) => send({
           t: "result",
           cid: msg.cid,
           ok: false,
@@ -13166,6 +13223,18 @@ class Daemon {
         return;
     }
   }
+  isBlocked(chatId2) {
+    return this.blockedChats.has(chatId2);
+  }
+  noteSendError(chatId2, err) {
+    if (!isBlocked(err))
+      return false;
+    if (!this.blockedChats.has(chatId2)) {
+      this.blockedChats.add(chatId2);
+      this.log(`chat ${chatId2} is refusing messages (blocked or deleted) \u2014 pausing delivery to it`);
+    }
+    return true;
+  }
   status() {
     return {
       pid: process.pid,
@@ -13174,6 +13243,7 @@ class Daemon {
       botUsername: this.botUsername,
       topicsEnabled: this.topics.enabled,
       threadMode: this.threadMode,
+      blockedChats: [...this.blockedChats],
       sessions: this.sessions.views()
     };
   }
@@ -13353,7 +13423,9 @@ class Daemon {
       chat_id: entry.chatId,
       message_thread_id: entry.threadId,
       rich_message: renderText(lines.join(" ")).toInputRichMessage(),
-      ...offer ? { reply_markup: restartOnKeyboard(handles.of(this.conn, entry.info.cwd), offer, this.t, locale) } : {}
+      ...offer ? {
+        reply_markup: restartOnKeyboard(handles.of(this.conn, entry.info.cwd), offer, handles.of(this.conn, offer), this.t, locale)
+      } : {}
     }).catch(() => {
       return;
     });
@@ -13368,7 +13440,7 @@ class Daemon {
   }
   drawHud(entry, state) {
     entry.state = state;
-    if (!this.config.pinnedStatus || !entry.chatId)
+    if (!this.config.pinnedStatus || !entry.chatId || this.isBlocked(entry.chatId))
       return;
     this.hud.schedule({ chatId: entry.chatId, threadId: entry.threadId ?? 0 }, this.localeFor(entry.chatId), {
       data: {
@@ -13404,6 +13476,8 @@ class Daemon {
     return access.allowedUsers[0] ?? access.allowedChats[0];
   }
   async adoptChat(chatId2) {
+    if (this.blockedChats.delete(chatId2))
+      this.log(`chat ${chatId2} is reachable again`);
     if (this.kv.get("home-chat") === chatId2)
       return;
     this.kv.set("home-chat", chatId2);
@@ -13428,21 +13502,23 @@ class Daemon {
   setLocale(chatId2, locale) {
     this.locales.set(chatId2, locale);
   }
-  async sendRich(chatId2, threadId, text2) {
-    if (!text2?.trim())
+  async sendRich(chatId2, threadId, text3) {
+    if (!text3?.trim() || this.isBlocked(chatId2))
       return;
     try {
       await this.api.sendRichMessage({
         chat_id: chatId2,
         message_thread_id: threadId,
-        rich_message: renderText(text2).toInputRichMessage()
+        rich_message: renderText(text3).toInputRichMessage()
       });
     } catch (err) {
+      if (this.noteSendError(chatId2, err))
+        return;
       if (this.topics.noteSendFailure(chatId2, threadId, err)) {
         hud.clear(this.conn, chatId2, threadId ?? 0);
         return;
       }
-      await this.api.sendMessage({ chat_id: chatId2, message_thread_id: threadId, text: text2 }).catch(() => {
+      await this.api.sendMessage({ chat_id: chatId2, message_thread_id: threadId, text: text3 }).catch(() => {
         return;
       });
     }
@@ -13503,6 +13579,7 @@ var init_daemon = __esm(() => {
   init_repos();
   init_hud();
   init_keyboards();
+  init_menu();
   init_render2();
   init_stream();
   init_topics();
@@ -20677,8 +20754,8 @@ function lt_default() {
     localeError: error28()
   };
 }
-var capitalizeFirstCharacter = (text2) => {
-  return text2.charAt(0).toUpperCase() + text2.slice(1);
+var capitalizeFirstCharacter = (text3) => {
+  return text3.charAt(0).toUpperCase() + text3.slice(1);
 }, error28 = () => {
   const Sizable = {
     string: {
@@ -34627,7 +34704,7 @@ var require_core = __commonJS((exports) => {
     errorsText(errors3 = this.errors, { separator = ", ", dataVar = "data" } = {}) {
       if (!errors3 || errors3.length === 0)
         return "No errors";
-      return errors3.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text2, msg) => text2 + separator + msg);
+      return errors3.map((e) => `${dataVar}${e.instancePath} ${e.message}`).reduce((text3, msg) => text3 + separator + msg);
     }
     $dataMetaSchema(metaSchema, keywordsJsonPointers) {
       const rules = this.RULES.all;
@@ -37866,8 +37943,8 @@ var init_server3 = __esm(async () => {
     const name = request2.params.name;
     const args = request2.params.arguments ?? {};
     try {
-      const text2 = await callDaemon(name, args, TOOL_TIMEOUT_MS[name] ?? DEFAULT_TOOL_TIMEOUT_MS);
-      return { content: [{ type: "text", text: text2 }] };
+      const text3 = await callDaemon(name, args, TOOL_TIMEOUT_MS[name] ?? DEFAULT_TOOL_TIMEOUT_MS);
+      return { content: [{ type: "text", text: text3 }] };
     } catch (err) {
       return {
         content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
@@ -38178,7 +38255,7 @@ function inboundAllowlisted() {
   return false;
 }
 var MANAGED_SETTINGS_PATHS = process.platform === "darwin" ? ["/Library/Application Support/ClaudeCode/managed-settings.json"] : ["/etc/claude-code/managed-settings.json"];
-var DEV_CHANNELS_FLAG2 = "--dangerously-load-development-channels";
+var DEV_CHANNELS_FLAG2 = "--dangerously-load-development-channels plugin:claude-telegram@claude-telegram";
 
 // src/commands/settings-file.ts
 init_paths();
@@ -38252,7 +38329,7 @@ function hookCommand() {
   const { exec, script } = selfEntry();
   return `${exec} ${script} hook`;
 }
-var CHANNEL_FLAG2 = "claude --channels plugin:claude-telegram@claude-telegram --dangerously-load-development-channels";
+var CHANNEL_FLAG2 = "claude --channels plugin:claude-telegram@claude-telegram " + "--dangerously-load-development-channels plugin:claude-telegram@claude-telegram";
 async function setup(args) {
   const hooksOnly = args.includes("--hooks");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -38360,6 +38437,13 @@ async function doctor() {
       text: "topic mode is off, so every chat carries one session at a time",
       fix: "in @BotFather: Bot Settings \u2192 Topic Mode \u2192 Enable, then `cctg daemon restart`"
     });
+    if (live.blockedChats.length) {
+      checks.push({
+        level: "bad",
+        text: `the bot is blocked in ${live.blockedChats.length} chat(s) \u2014 nothing can be delivered`,
+        fix: `unblock @${live.botUsername} in Telegram, then send it any message`
+      });
+    }
     checks.push({
       level: live.sessions.length ? "ok" : "warn",
       text: `${live.sessions.length} session(s) connected`,
@@ -38448,6 +38532,10 @@ async function status() {
     ["threading", live.threadMode === "topics" ? ok("topics") : dim("flat (topic mode is off in BotFather)")],
     ["state", paths.state]
   ]));
+  if (live.blockedChats.length) {
+    console.log(`
+${bad(`blocked in ${live.blockedChats.join(", ")} \u2014 unblock @${live.botUsername} and message it`)}`);
+  }
   console.log(heading(`sessions (${live.sessions.length})`));
   if (!live.sessions.length) {
     console.log(info("none connected"));

@@ -31,6 +31,7 @@ export class Hud {
   private timers = new Map<string, ReturnType<typeof setTimeout>>()
   private lastEdit = new Map<string, number>()
   private lastDrawn = new Map<string, string>()
+  private warnedPinFailure = new Set<string>()
 
   constructor(
     private api: Api,
@@ -38,6 +39,7 @@ export class Hud {
     private topics: TopicManager,
     private t: Strings,
     private log: (message: string) => void,
+    private onSendError: (chatId: string, err: unknown) => boolean,
   ) {}
 
   private key(target: Target): string {
@@ -94,16 +96,23 @@ export class Hud {
           disable_notification: true,
         })
         hudStore.set(this.conn, target.chatId, target.threadId, sent.message_id)
-        // Pinning is what puts the status in the thread header. It is allowed
-        // to fail — an unpinned status message is still useful.
+        // Pinning is what puts the status in the thread header, which is the
+        // whole point of it. It is allowed to fail — in a group the bot needs a
+        // right it may not have — but silently failing to pin looks identical
+        // to not having implemented it, so say so once.
         await this.api.pinChatMessage({
           chat_id: target.chatId,
           message_id: sent.message_id,
           disable_notification: true,
-        }).catch(() => undefined)
+        }).catch((err: unknown) => {
+          if (this.warnedPinFailure.has(key)) return
+          this.warnedPinFailure.add(key)
+          this.log(`status posted but could not be pinned in ${key}: ${String(err)}`)
+        })
       }
       this.lastDrawn.set(key, doc.content)
     } catch (err) {
+      if (this.onSendError(target.chatId, err)) return
       if (this.topics.noteSendFailure(target.chatId, target.threadId, err)) {
         hudStore.clear(this.conn, target.chatId, target.threadId)
         this.lastDrawn.delete(key)

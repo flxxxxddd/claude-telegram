@@ -43,6 +43,8 @@ src/telegram/
   topics.ts           a forum topic per project
   keyboards.ts        every inline keyboard; CLI values verbatim from `claude --help`
   callbacks.ts        typed callback_data namespaces
+  menu.ts             the `/` command menu, and the `/help` built from it
+  errors.ts           which Bot API failures are worth another attempt
 src/daemon/
   index.ts            the daemon: socket server, session lifecycle, routing
   bot.ts              commands, inbound routing, button taps
@@ -86,9 +88,25 @@ worse than one a beat late.
 agents would otherwise interleave five unrelated narratives into one message.
 
 **`callback_data` is capped at 64 bytes and buttons outlive the daemon.** A
-button carries a `handles.of()` id, never a path. Handles are minted once and
-reused so a tap still works after a restart, and `unpack` returning `undefined`
-for a stale button is a real path to handle, not an error.
+button carries a `handles.of()` id, never a path, a profile name, or any other
+value whose length someone else decides — `pack` reports an overflow by
+throwing, which takes down the whole keyboard rather than one button. That is
+also why a permission button carries a ticket this daemon mints instead of
+Claude Code's `request_id`: an overflow there would mean a request nobody can
+answer. `callbacks.test.ts` packs the worst realistic input for every namespace.
+Handles are minted once and reused so a tap still works after a restart, and
+`unpack` returning `undefined` for a stale button is a real path to handle.
+
+**A blocked bot never recovers on its own.** Every send to that chat returns the
+same 403 until the user messages it again, so `errors.ts` classifies it and the
+daemon stops delivering there — otherwise one line per turn accumulates in the
+log forever while the rate budget burns. Hearing from the chat clears it, since
+unblocking is exactly what produces a message.
+
+**The `/` menu and the handlers must not drift.** `installHandlers` returns what
+it registered and `pushMenu` refuses to publish an entry with no handler; `/help`
+renders from the same list. A menu entry that answers nothing is a dead end the
+user finds by tapping it.
 
 **Coalesce every edit.** A working turn changes the status several times a
 second and Telegram answers that with 429s. `hud.ts` and `stream.ts` both hold

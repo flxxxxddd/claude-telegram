@@ -53,6 +53,8 @@ export type DaemonStatus = {
   /** Whether the bot can open topics — decides threading mode. */
   topicsEnabled: boolean
   threadMode: 'topics' | 'flat'
+  /** Chats that are refusing messages — the bot was blocked or the chat deleted. */
+  blockedChats: string[]
   sessions: SessionView[]
 }
 

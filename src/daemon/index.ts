@@ -24,7 +24,9 @@ import { frame, type ClientMsg, type DaemonMsg, type DaemonStatus, type SessionI
 import { loadAccess } from '../store/access.ts'
 import { handles, hud as hudStore, kvStore, queue, settings, topics as topicStore } from '../store/repos.ts'
 import { Hud } from '../telegram/hud.ts'
+import { isBlocked } from '../telegram/errors.ts'
 import { restartOnKeyboard } from '../telegram/keyboards.ts'
+import { pushMenu } from '../telegram/menu.ts'
 import { renderText, renderTurn } from '../telegram/render.ts'
 import { TurnStream } from '../telegram/stream.ts'
 import { TopicManager } from '../telegram/topics.ts'
@@ -56,6 +58,7 @@ export class Daemon {
   private locales = kvStore<string>(this.conn, 'locale:')
   private kv = kvStore<string>(this.conn, 'daemon:')
   private warnedUnregistered = new Set<string>()
+  private blockedChats = new Set<string>()
 
   /* ------------------------------------------------------------ lifecycle -- */
 
@@ -92,7 +95,8 @@ export class Daemon {
     this.api = this.bot.api
 
     this.topics = new TopicManager(this.api, this.conn, this.config)
-    this.hud = new Hud(this.api, this.conn, this.topics, this.t, msg => this.log(msg))
+    this.hud = new Hud(this.api, this.conn, this.topics, this.t, msg => this.log(msg),
+      (chatId, err) => this.noteSendError(chatId, err))
     this.typing = new TypingKeeper(this.api)
 
     let me: Awaited<ReturnType<Api['getMe']>>
@@ -110,7 +114,8 @@ export class Daemon {
     this.threadMode = await this.topics.detect()
     this.log(`bot @${this.botUsername}, threading: ${this.threadMode}`)
 
-    installHandlers(this.bot, this)
+    const registered = installHandlers(this.bot, this)
+    await pushMenu(this.api, registered, msg => this.log(msg))
     this.startSocket()
     await this.bot.start()
     this.log(`daemon ${VERSION} listening on ${paths.sock}`)
@@ -248,6 +253,28 @@ export class Daemon {
     }
   }
 
+  /**
+   * Whether a chat is refusing everything. A blocked bot fails identically on
+   * every send, so continuing to try burns the rate budget and fills the log
+   * with one line per turn.
+   */
+  isBlocked(chatId: string): boolean {
+    return this.blockedChats.has(chatId)
+  }
+
+  /**
+   * Record a send failure. Returns true when the chat is now considered dead,
+   * so callers can stop rather than schedule a retry.
+   */
+  noteSendError(chatId: string, err: unknown): boolean {
+    if (!isBlocked(err)) return false
+    if (!this.blockedChats.has(chatId)) {
+      this.blockedChats.add(chatId)
+      this.log(`chat ${chatId} is refusing messages (blocked or deleted) — pausing delivery to it`)
+    }
+    return true
+  }
+
   status(): DaemonStatus {
     return {
       pid: process.pid,
@@ -256,6 +283,7 @@ export class Daemon {
       botUsername: this.botUsername,
       topicsEnabled: this.topics.enabled,
       threadMode: this.threadMode,
+      blockedChats: [...this.blockedChats],
       sessions: this.sessions.views(),
     }
   }
@@ -487,7 +515,15 @@ export class Daemon {
       message_thread_id: entry.threadId,
       rich_message: renderText(lines.join(' ')).toInputRichMessage(),
       ...(offer
-        ? { reply_markup: restartOnKeyboard(handles.of(this.conn, entry.info.cwd), offer, this.t, locale) }
+        ? {
+            reply_markup: restartOnKeyboard(
+              handles.of(this.conn, entry.info.cwd),
+              offer,
+              handles.of(this.conn, offer),
+              this.t,
+              locale,
+            ),
+          }
         : {}),
     }).catch(() => undefined)
   }
@@ -503,7 +539,7 @@ export class Daemon {
 
   drawHud(entry: SessionEntry, state: SessionEntry['state']): void {
     entry.state = state
-    if (!this.config.pinnedStatus || !entry.chatId) return
+    if (!this.config.pinnedStatus || !entry.chatId || this.isBlocked(entry.chatId)) return
     // Thread 0 is the chat itself, which is where a flat-mode session posts.
     // Without this a bot with topic mode off would have no status at all.
     this.hud.schedule(
@@ -568,6 +604,9 @@ export class Daemon {
    * invisible until it is restarted.
    */
   async adoptChat(chatId: string): Promise<void> {
+    // Hearing from a chat proves it is reachable again — unblocking is exactly
+    // how a user fixes this, and it produces a message.
+    if (this.blockedChats.delete(chatId)) this.log(`chat ${chatId} is reachable again`)
     if (this.kv.get('home-chat') === chatId) return
     this.kv.set('home-chat', chatId)
     for (const entry of this.sessions.all()) {
@@ -600,7 +639,7 @@ export class Daemon {
 
   /** Send plain prose as a rich paragraph, tolerating a vanished topic. */
   async sendRich(chatId: string, threadId: number | undefined, text: string | null): Promise<void> {
-    if (!text?.trim()) return
+    if (!text?.trim() || this.isBlocked(chatId)) return
     try {
       await this.api.sendRichMessage({
         chat_id: chatId,
@@ -608,6 +647,7 @@ export class Daemon {
         rich_message: renderText(text).toInputRichMessage(),
       })
     } catch (err) {
+      if (this.noteSendError(chatId, err)) return
       if (this.topics.noteSendFailure(chatId, threadId, err)) {
         hudStore.clear(this.conn, chatId, threadId ?? 0)
         return

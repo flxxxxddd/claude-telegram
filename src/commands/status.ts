@@ -26,6 +26,10 @@ export async function status(): Promise<number> {
     ['state', paths.state],
   ]))
 
+  if (live.blockedChats.length) {
+    console.log(`\n${bad(`blocked in ${live.blockedChats.join(', ')} — unblock @${live.botUsername} and message it`)}`)
+  }
+
   console.log(heading(`sessions (${live.sessions.length})`))
   if (!live.sessions.length) {
     console.log(info('none connected'))

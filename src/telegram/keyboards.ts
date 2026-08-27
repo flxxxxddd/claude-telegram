@@ -8,7 +8,18 @@ import { BEST_ACCOUNT, formatWindow, tightestWindow, type Account } from '../cca
 import type { Locale, Strings } from '../i18n/index.ts'
 import { LOCALE_NAMES, LOCALES } from '../i18n/index.ts'
 import type { SessionView } from '../protocol.ts'
-import { accountCb, askCb, closeCb, langCb, permissionCb, projectCb, sessionCb, settingsCb } from './callbacks.ts'
+import {
+  ACCOUNT_BEST,
+  ACCOUNT_INHERIT,
+  accountCb,
+  askCb,
+  closeCb,
+  langCb,
+  permissionCb,
+  projectCb,
+  sessionCb,
+  settingsCb,
+} from './callbacks.ts'
 import { shortModel } from './render.ts'
 
 /**
@@ -128,30 +139,39 @@ export function accountsKeyboard(
   handle: string,
   list: Account[],
   current: string | null,
+  /** Mints the handle a button carries in place of a profile name. */
+  handleFor: (name: string) => string,
   t: Strings,
   locale: Locale,
 ): InlineKeyboard {
   const kb = new InlineKeyboard()
-  const mark = (value: string): string => (value === current ? '● ' : '')
+  const mark = (value: string | null): string => (value === current ? '● ' : '')
 
-  kb.text(`${mark(BEST_ACCOUNT)}✨ ${t.t(locale, 'accounts.best')}`, accountCb.pack({ h: handle, name: BEST_ACCOUNT })).row()
+  kb.text(`${mark(BEST_ACCOUNT)}✨ ${t.t(locale, 'accounts.best')}`,
+    accountCb.pack({ h: handle, a: ACCOUNT_BEST })).row()
   for (const a of list) {
     const window = tightestWindow(a)
     const dot = window === undefined ? '⚪' : window.utilization >= 100 ? '🔴' : window.utilization >= 80 ? '🟡' : '🟢'
     const detail = formatWindow(window)
     kb.text(`${mark(a.name)}${dot} ${a.name}${detail ? ` · ${detail}` : ''}`.slice(0, 64),
-      accountCb.pack({ h: handle, name: a.name })).row()
+      accountCb.pack({ h: handle, a: handleFor(a.name) })).row()
   }
-  // An empty name clears the choice: sessions then run as whatever cca's own
-  // active profile is, which is what someone who never used this panel gets.
-  kb.text(`${mark('')}${t.t(locale, 'accounts.inherit')}`, accountCb.pack({ h: handle, name: '' })).row()
+  kb.text(`${mark(null)}${t.t(locale, 'accounts.inherit')}`,
+    accountCb.pack({ h: handle, a: ACCOUNT_INHERIT })).row()
   return kb.text(`✖ ${t.t(locale, 'controls.close')}`, closeCb.pack({}))
 }
 
 /** The button offered when the running account has no room left. */
-export function restartOnKeyboard(handle: string, name: string, t: Strings, locale: Locale): InlineKeyboard {
+export function restartOnKeyboard(
+  handle: string,
+  name: string,
+  accountHandle: string,
+  t: Strings,
+  locale: Locale,
+): InlineKeyboard {
   return new InlineKeyboard()
-    .text(`▶️ ${t.t(locale, 'accounts.restartOn', { name })}`, accountCb.pack({ h: handle, name, launch: true }))
+    .text(`▶️ ${t.t(locale, 'accounts.restartOn', { name })}`,
+      accountCb.pack({ h: handle, a: accountHandle, launch: true }))
     .style('primary')
 }
 
