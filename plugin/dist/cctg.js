@@ -10567,6 +10567,23 @@ class TurnMirror {
     if (changed && !this.turn.complete)
       this.events.onUpdate?.(this.snapshot());
   }
+  async settle(maxMs = 2500, quietMs = 300) {
+    const deadline = Date.now() + maxMs;
+    const size = () => this.turn.prose.length + this.turn.tools.length + (this.turn.thinking ? 1 : 0);
+    let lastChange = Date.now();
+    let seen = size();
+    while (Date.now() < deadline) {
+      this.poke();
+      const now = size();
+      if (now !== seen) {
+        seen = now;
+        lastChange = Date.now();
+      } else if (Date.now() - lastChange >= quietMs) {
+        return;
+      }
+      await Bun.sleep(60);
+    }
+  }
   finish() {
     this.poke();
     const records = this.tail.read();
@@ -12790,6 +12807,7 @@ class Daemon {
   server;
   locales = kvStore(this.conn, "locale:");
   kv = kvStore(this.conn, "daemon:");
+  warnedUnregistered = new Set;
   async start() {
     try {
       await this.boot();
@@ -12993,8 +13011,10 @@ class Daemon {
   }
   onHook(msg) {
     const entry = this.resolveHookSession(msg);
-    if (!entry)
+    if (!entry) {
+      this.noteUnregistered(msg);
       return;
+    }
     switch (msg.event) {
       case "UserPromptSubmit":
         this.beginTurn(entry);
@@ -13025,7 +13045,18 @@ class Daemon {
       this.attachMirror(rebound);
     return rebound;
   }
+  noteUnregistered(msg) {
+    if (msg.event === "SessionEnd")
+      return;
+    if (this.warnedUnregistered.has(msg.session_id))
+      return;
+    this.warnedUnregistered.add(msg.session_id);
+    this.log(`hooks are firing for ${msg.cwd} but no session is attached \u2014 started without the channel flag?`);
+  }
   async beginTurn(entry) {
+    if (entry.turnOpen)
+      return;
+    entry.turnOpen = true;
     entry.state = "working";
     if (entry.chatId)
       this.typing.start(entry.chatId, entry.threadId);
@@ -13038,6 +13069,10 @@ class Daemon {
     await stream.begin();
   }
   async endTurn(entry) {
+    if (!entry.turnOpen)
+      return;
+    entry.turnOpen = false;
+    await entry.mirror?.settle();
     const snap = entry.mirror?.finish();
     if (entry.chatId)
       this.typing.stop(entry.chatId, entry.threadId);
@@ -13052,6 +13087,7 @@ class Daemon {
     }
     entry.stream = undefined;
     this.drawHud(entry, "done");
+    this.log(snap ? `turn done in ${entry.info.cwd}: ${snap.prose.length} message(s), ${snap.tools.length} tool call(s)` : `turn done in ${entry.info.cwd}: nothing mirrored (no transcript follower)`);
   }
   async sendTurn(chatId2, threadId, snap) {
     const doc = renderTurn({ ...snap, complete: true }, { t: this.t, locale: this.localeFor(chatId2) });
@@ -37911,6 +37947,27 @@ function installHooks(command2) {
   }
   return { added, path: settingsPath() };
 }
+function removeHooks(command2) {
+  const settings2 = readSettings();
+  const hooks = { ...settings2.hooks ?? {} };
+  const removed = [];
+  for (const event of HOOK_EVENTS) {
+    const matchers = hooks[event];
+    if (!matchers)
+      continue;
+    const kept = matchers.map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => h.command !== command2) })).filter((m) => (m.hooks ?? []).length > 0);
+    if (kept.length !== matchers.length)
+      removed.push(event);
+    if (kept.length)
+      hooks[event] = kept;
+    else
+      delete hooks[event];
+  }
+  if (removed.length)
+    writeFileSync4(settingsPath(), `${JSON.stringify({ ...settings2, hooks }, null, 2)}
+`);
+  return removed;
+}
 
 // src/commands/setup.ts
 function hookCommand() {
@@ -37949,7 +38006,12 @@ async function setup(args) {
       }
     }
     const command2 = hookCommand();
-    if (hooksInstalled(command2)) {
+    if (pluginInstalled()) {
+      console.log(ok("mirror hooks come from the plugin"));
+      const removed = removeHooks(command2);
+      if (removed.length)
+        console.log(ok(`removed the duplicate copy in ${settingsPath()}`));
+    } else if (hooksInstalled(command2)) {
       console.log(ok("mirror hooks already wired"));
     } else {
       console.log(info(`The mirror needs ${HOOK_EVENTS.length} hooks in ${settingsPath()}.`));
@@ -38057,11 +38119,20 @@ async function doctor() {
     fix: INSTALL_STEPS.join("  &&  ")
   });
   const command2 = hookCommand();
-  checks.push(hooksInstalled(command2) ? { level: "ok", text: "mirror hooks are wired" } : {
-    level: config.mirror === "off" ? "ok" : "warn",
-    text: config.mirror === "off" ? "mirroring is off by configuration" : "mirror hooks are not wired",
-    fix: config.mirror === "off" ? undefined : `run \`cctg setup --hooks\` to add them to ${settingsPath()}`
-  });
+  const wiredByHand = hooksInstalled(command2);
+  if (pluginInstalled()) {
+    checks.push(wiredByHand ? {
+      level: "bad",
+      text: "the mirror hooks are wired twice \u2014 once by the plugin, once in settings.json",
+      fix: `run \`cctg setup --hooks\` to drop the copy in ${settingsPath()}; duplicates deliver every` + " event twice, and a second Stop cancels the message the first one is sending"
+    } : { level: "ok", text: "mirror hooks come from the plugin" });
+  } else {
+    checks.push(wiredByHand ? { level: "ok", text: "mirror hooks are wired" } : {
+      level: config.mirror === "off" ? "ok" : "warn",
+      text: config.mirror === "off" ? "mirroring is off by configuration" : "mirror hooks are not wired",
+      fix: config.mirror === "off" ? undefined : `run \`cctg setup --hooks\` to add them to ${settingsPath()}`
+    });
+  }
   checks.push(existsSync8(paths.db) ? { level: "ok", text: `state database at ${paths.db} (${topics.all(db()).length} topics)` } : { level: "warn", text: "no state database yet \u2014 it is created on first run" });
   console.log(heading("cctg doctor"));
   for (const check of checks)

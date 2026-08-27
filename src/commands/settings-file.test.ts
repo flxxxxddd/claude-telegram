@@ -81,3 +81,30 @@ describe('removeHooks', () => {
     expect(readSettings().hooks?.PostToolUse).toBeUndefined()
   })
 })
+
+describe('duplicate hooks', () => {
+  test('removeHooks clears every copy, so the plugin can own them alone', () => {
+    // The plugin declares the same four hooks. With a copy here as well, every
+    // event is delivered twice — and a duplicate `Stop` cancels the message the
+    // first one is still sending, which is how a turn silently never appears.
+    installHooks(COMMAND)
+    expect(hooksInstalled(COMMAND)).toBe(true)
+    removeHooks(COMMAND)
+    expect(hooksInstalled(COMMAND)).toBe(false)
+    for (const event of HOOK_EVENTS) {
+      const copies = (readSettings().hooks?.[event] ?? [])
+        .flatMap(m => m.hooks ?? [])
+        .filter(h => h.command === COMMAND)
+      expect(copies).toHaveLength(0)
+    }
+  })
+
+  test('installing twice never leaves two copies of the same command', () => {
+    installHooks(COMMAND)
+    installHooks(COMMAND)
+    const copies = (readSettings().hooks?.Stop ?? [])
+      .flatMap(m => m.hooks ?? [])
+      .filter(h => h.command === COMMAND)
+    expect(copies).toHaveLength(1)
+  })
+})

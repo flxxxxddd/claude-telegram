@@ -53,6 +53,7 @@ export class Daemon {
   private server: Server | undefined
   private locales = kvStore<string>(this.conn, 'locale:')
   private kv = kvStore<string>(this.conn, 'daemon:')
+  private warnedUnregistered = new Set<string>()
 
   /* ------------------------------------------------------------ lifecycle -- */
 
@@ -318,7 +319,10 @@ export class Daemon {
   /** A hook frame: the session told us where it is in its turn. */
   private onHook(msg: Extract<ClientMsg, { t: 'hook' }>): void {
     const entry = this.resolveHookSession(msg)
-    if (!entry) return
+    if (!entry) {
+      this.noteUnregistered(msg)
+      return
+    }
 
     switch (msg.event) {
       case 'UserPromptSubmit':
@@ -357,7 +361,25 @@ export class Daemon {
     return rebound
   }
 
+  /**
+   * Say once — not once per tool call — that a session's hooks are arriving
+   * with no session behind them, which is what the mirror looks like when a
+   * session was started without the channel flag.
+   *
+   * `SessionEnd` is exempt: the shim's socket closes first by design, so that
+   * event always arrives after the session is gone and warning about it would
+   * point at a problem that is not there.
+   */
+  private noteUnregistered(msg: Extract<ClientMsg, { t: 'hook' }>): void {
+    if (msg.event === 'SessionEnd') return
+    if (this.warnedUnregistered.has(msg.session_id)) return
+    this.warnedUnregistered.add(msg.session_id)
+    this.log(`hooks are firing for ${msg.cwd} but no session is attached — started without the channel flag?`)
+  }
+
   private async beginTurn(entry: SessionEntry): Promise<void> {
+    if (entry.turnOpen) return
+    entry.turnOpen = true
     entry.state = 'working'
     if (entry.chatId) this.typing.start(entry.chatId, entry.threadId)
     this.drawHud(entry, 'working')
@@ -375,6 +397,11 @@ export class Daemon {
   }
 
   private async endTurn(entry: SessionEntry): Promise<void> {
+    if (!entry.turnOpen) return
+    entry.turnOpen = false
+    // Let the transcript catch up before closing: the Stop hook usually beats
+    // Claude Code's write of the final assistant record.
+    await entry.mirror?.settle()
     const snap = entry.mirror?.finish()
     if (entry.chatId) this.typing.stop(entry.chatId, entry.threadId)
     entry.state = 'done'
@@ -391,6 +418,9 @@ export class Daemon {
     }
     entry.stream = undefined
     this.drawHud(entry, 'done')
+    this.log(snap
+      ? `turn done in ${entry.info.cwd}: ${snap.prose.length} message(s), ${snap.tools.length} tool call(s)`
+      : `turn done in ${entry.info.cwd}: nothing mirrored (no transcript follower)`)
   }
 
   /** Post a finished turn as one rich message. */

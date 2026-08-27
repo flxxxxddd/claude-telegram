@@ -107,6 +107,19 @@ too. Keep both.
 **`access.json` that fails to parse denies everyone.** A hand-edit with a stray
 comma must not open the bot to strangers.
 
+**The plugin owns the mirror hooks; `settings.json` must not have a copy.** Both
+sources fire, so every event is delivered twice — and the second `Stop` closes
+an already-closed turn, finds it empty, and cancels the stream the first one is
+still committing. The turn then never appears, with nothing logged. `setup`
+removes the duplicate when the plugin is installed and `doctor` reports it, but
+`beginTurn`/`endTurn` are also idempotent through `entry.turnOpen`, because a
+project-scoped `settings.json` can reintroduce it.
+
+**Close a turn only after the transcript settles.** The `Stop` hook and Claude
+Code's write of the final assistant record race, and the hook usually wins:
+closing on the hook alone drops the turn's closing paragraph. `mirror.settle()`
+polls until nothing new has arrived for 300ms, capped at 2.5s.
+
 **Model, effort and permission-mode values are copied verbatim from
 `claude --help`** (2.1.246). They are passed to a launched session, so a value
 invented in `keyboards.ts` fails at spawn time rather than at pick time.

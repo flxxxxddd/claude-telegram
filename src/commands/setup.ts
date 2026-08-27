@@ -15,7 +15,7 @@ import { loadAccess } from '../store/access.ts'
 import { INSTALL_STEPS, pluginInstalled } from './plugin-state.ts'
 import { bad, bold, cyan, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
-import { HOOK_EVENTS, hooksInstalled, installHooks, settingsPath } from './settings-file.ts'
+import { HOOK_EVENTS, hooksInstalled, installHooks, removeHooks, settingsPath } from './settings-file.ts'
 
 /**
  * The hook command written into `settings.json`.
@@ -67,7 +67,14 @@ export async function setup(args: string[]): Promise<number> {
     }
 
     const command = hookCommand()
-    if (hooksInstalled(command)) {
+    if (pluginInstalled()) {
+      // The plugin declares the same four hooks. Wiring them here as well
+      // delivers every event twice, and a duplicate `Stop` cancels the message
+      // the first one is still sending — so the plugin owns them alone.
+      console.log(ok('mirror hooks come from the plugin'))
+      const removed = removeHooks(command)
+      if (removed.length) console.log(ok(`removed the duplicate copy in ${settingsPath()}`))
+    } else if (hooksInstalled(command)) {
       console.log(ok('mirror hooks already wired'))
     } else {
       console.log(info(`The mirror needs ${HOOK_EVENTS.length} hooks in ${settingsPath()}.`))

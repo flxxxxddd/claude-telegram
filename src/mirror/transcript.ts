@@ -182,8 +182,35 @@ export class TurnMirror {
   }
 
   /**
-   * Close the current turn. Called from the `Stop` hook, which fires after the
-   * last record is written, so one final read catches the closing prose.
+   * Wait for the transcript to stop growing.
+   *
+   * The `Stop` hook and Claude Code's write of the final assistant record race,
+   * and the hook usually wins — a turn closed on the hook alone loses its
+   * closing paragraph (observed: `prose=0 tools=1` for a turn that ended with a
+   * sentence). So poll until nothing new has arrived for `quietMs`, capped, and
+   * only then close.
+   */
+  async settle(maxMs = 2500, quietMs = 300): Promise<void> {
+    const deadline = Date.now() + maxMs
+    const size = (): number => this.turn.prose.length + this.turn.tools.length + (this.turn.thinking ? 1 : 0)
+    let lastChange = Date.now()
+    let seen = size()
+    while (Date.now() < deadline) {
+      this.poke()
+      const now = size()
+      if (now !== seen) {
+        seen = now
+        lastChange = Date.now()
+      } else if (Date.now() - lastChange >= quietMs) {
+        return
+      }
+      await Bun.sleep(60)
+    }
+  }
+
+  /**
+   * Close the current turn. Called from the `Stop` hook, after `settle`, so one
+   * final read catches anything that landed in between.
    */
   finish(): TurnSnapshot {
     this.poke()

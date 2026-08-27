@@ -29,6 +29,13 @@ export type SessionEntry = {
   contextTokens?: number
   branch?: string
   lastPrompt?: string | null
+  /**
+   * Whether a turn is open. Hook events can arrive more than once for one
+   * turn — a plugin-declared hook and a hand-wired one both fire — and a
+   * duplicate `Stop` would otherwise cancel the stream the first one is still
+   * committing.
+   */
+  turnOpen?: boolean
 }
 
 export class SessionRegistry {

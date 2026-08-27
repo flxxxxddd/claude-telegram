@@ -94,13 +94,25 @@ export async function doctor(): Promise<number> {
       })
 
   const command = hookCommand()
-  checks.push(hooksInstalled(command)
-    ? { level: 'ok', text: 'mirror hooks are wired' }
-    : {
-        level: config.mirror === 'off' ? 'ok' : 'warn',
-        text: config.mirror === 'off' ? 'mirroring is off by configuration' : 'mirror hooks are not wired',
-        fix: config.mirror === 'off' ? undefined : `run \`cctg setup --hooks\` to add them to ${settingsPath()}`,
-      })
+  const wiredByHand = hooksInstalled(command)
+  if (pluginInstalled()) {
+    checks.push(wiredByHand
+      ? {
+          level: 'bad',
+          text: 'the mirror hooks are wired twice — once by the plugin, once in settings.json',
+          fix: `run \`cctg setup --hooks\` to drop the copy in ${settingsPath()}; duplicates deliver every`
+            + ' event twice, and a second Stop cancels the message the first one is sending',
+        }
+      : { level: 'ok', text: 'mirror hooks come from the plugin' })
+  } else {
+    checks.push(wiredByHand
+      ? { level: 'ok', text: 'mirror hooks are wired' }
+      : {
+          level: config.mirror === 'off' ? 'ok' : 'warn',
+          text: config.mirror === 'off' ? 'mirroring is off by configuration' : 'mirror hooks are not wired',
+          fix: config.mirror === 'off' ? undefined : `run \`cctg setup --hooks\` to add them to ${settingsPath()}`,
+        })
+  }
 
   checks.push(existsSync(paths.db)
     ? { level: 'ok', text: `state database at ${paths.db} (${topics.all(db()).length} topics)` }
