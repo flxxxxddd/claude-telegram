@@ -12042,7 +12042,7 @@ class TypingKeeper {
 var REFRESH_MS = 4000;
 
 // src/version.ts
-var VERSION = "0.1.2";
+var VERSION = "0.1.3";
 
 // src/daemon/launcher.ts
 import { spawn as spawn2 } from "child_process";
@@ -37903,6 +37903,18 @@ var INSTALL_STEPS = [
   `claude plugin marketplace add ${MARKETPLACE}`,
   `claude plugin install ${PLUGIN_NAME}@${PLUGIN_NAME}`
 ];
+function inboundAllowlisted() {
+  for (const path of MANAGED_SETTINGS_PATHS) {
+    try {
+      const parsed = JSON.parse(readFileSync5(path, "utf8"));
+      if (parsed.allowedChannelPlugins?.some((entry) => entry.plugin === PLUGIN_NAME))
+        return true;
+    } catch {}
+  }
+  return false;
+}
+var MANAGED_SETTINGS_PATHS = process.platform === "darwin" ? ["/Library/Application Support/ClaudeCode/managed-settings.json"] : ["/etc/claude-code/managed-settings.json"];
+var DEV_CHANNELS_FLAG = "--dangerously-load-development-channels";
 
 // src/commands/settings-file.ts
 init_paths();
@@ -37976,7 +37988,7 @@ function hookCommand() {
   const { exec, script } = selfEntry();
   return `${exec} ${script} hook`;
 }
-var CHANNEL_FLAG2 = "claude --channels plugin:claude-telegram@claude-telegram";
+var CHANNEL_FLAG2 = "claude --channels plugin:claude-telegram@claude-telegram --dangerously-load-development-channels";
 async function setup(args) {
   const hooksOnly = args.includes("--hooks");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -38037,6 +38049,9 @@ async function setup(args) {
     if (!live)
       console.log(`  ${ok("")}${bold("cctg daemon start")}   ${dim("(or just open a Claude Code session)")}`);
     console.log(`  Start a session with ${bold(CHANNEL_FLAG2)}`);
+    if (!inboundAllowlisted()) {
+      console.log(`     ${dim("the second flag is what lets your Telegram messages reach the session")}`);
+    }
     if (!access.allowedUsers.length) {
       console.log(`  DM your bot; it replies with a code. Run ${bold("/cctg:access pair <code>")} in the session.`);
       console.log(`  Once you are in, ${bold("/cctg:access policy allowlist")} so strangers get nothing.`);
@@ -38084,7 +38099,7 @@ async function doctor() {
     checks.push({
       level: live.sessions.length ? "ok" : "warn",
       text: `${live.sessions.length} session(s) connected`,
-      fix: live.sessions.length ? undefined : "start Claude Code with `--channels plugin:claude-telegram@claude-telegram`"
+      fix: live.sessions.length ? undefined : `start Claude Code with \`--channels plugin:claude-telegram@claude-telegram ${DEV_CHANNELS_FLAG}\``
     });
   } else {
     checks.push({
@@ -38118,6 +38133,13 @@ async function doctor() {
     text: "the plugin is not installed, so the channel flag resolves to nothing",
     fix: INSTALL_STEPS.join("  &&  ")
   });
+  if (pluginInstalled()) {
+    checks.push(inboundAllowlisted() ? { level: "ok", text: "inbound messages are allowlisted in managed settings" } : {
+      level: "warn",
+      text: "inbound messages need `" + DEV_CHANNELS_FLAG + "`",
+      fix: "without it Claude Code drops everything you type to the bot \u2014 turns still mirror, " + "which is why this looks like it half works. Add the flag to the session, or see " + "`/cctg:configure` for the managed-settings allowlist."
+    });
+  }
   const command2 = hookCommand();
   const wiredByHand = hooksInstalled(command2);
   if (pluginInstalled()) {

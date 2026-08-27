@@ -79,7 +79,37 @@ needs.
 **5. Start a session with the channel flag.** It has to be on the command line:
 
 ```sh
-claude --channels plugin:claude-telegram@claude-telegram
+claude --channels plugin:claude-telegram@claude-telegram \
+       --dangerously-load-development-channels
+```
+
+The second flag is not optional here, and it is worth knowing why. Claude Code
+only lets channel plugins on its own approved list push inbound messages; a
+plugin you installed yourself is not on it. Without the flag the session starts,
+the mirror works and the topic fills up — but everything you type to the bot is
+**silently dropped**. The flag lifts that check for the whole session, so it
+applies to every channel plugin loaded in it, not just this one.
+
+The alternative, if you would rather not pass it, is an explicit allowlist in
+managed settings — `/Library/Application Support/ClaudeCode/managed-settings.json`
+on macOS, `/etc/claude-code/managed-settings.json` on Linux, needs root:
+
+```json
+{
+  "channelsEnabled": true,
+  "allowedChannelPlugins": [
+    { "marketplace": "claude-telegram", "plugin": "claude-telegram" }
+  ]
+}
+```
+
+Setting that key **replaces** Anthropic's default list rather than adding to it,
+so any official channel plugin you also use has to be named there too.
+
+Either way, the flag is long enough to be worth an alias:
+
+```sh
+alias ctg='claude --channels plugin:claude-telegram@claude-telegram --dangerously-load-development-channels'
 ```
 
 **6. Pair.** DM your bot. It replies with a six-character code. In your session:

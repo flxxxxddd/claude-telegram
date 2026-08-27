@@ -40,6 +40,13 @@ bridge works without it, one session per chat.
 `--channels plugin:claude-telegram@claude-telegram`. That flag has to be on the
 command line; it cannot be set afterwards.
 
+**The topic fills up, but the bot ignores what you type.** Claude Code showed
+`not on the approved channels allowlist` at startup. Only channel plugins on its
+own approved list may push inbound messages; everything else about the bridge
+works, and inbound is dropped silently after that one line. Add
+`--dangerously-load-development-channels` to the session, or allowlist the
+plugin in managed settings — see `/cctg:configure`.
+
 **"mirror hooks are not wired"** — `cctg setup --hooks`.
 
 **Bot answers commands but the turn never appears.** The hooks fire but the

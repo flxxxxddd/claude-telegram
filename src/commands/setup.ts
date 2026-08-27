@@ -12,7 +12,7 @@ import { botToken, loadConfig, looksLikeToken, saveBotToken, saveConfig } from '
 import { paths } from '../paths.ts'
 import { selfEntry } from '../self.ts'
 import { loadAccess } from '../store/access.ts'
-import { INSTALL_STEPS, pluginInstalled } from './plugin-state.ts'
+import { INSTALL_STEPS, inboundAllowlisted, pluginInstalled } from './plugin-state.ts'
 import { bad, bold, cyan, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
 import { HOOK_EVENTS, hooksInstalled, installHooks, removeHooks, settingsPath } from './settings-file.ts'
@@ -32,7 +32,8 @@ export function hookCommand(): string {
 }
 
 /** The flag a session needs before any of this does anything. */
-export const CHANNEL_FLAG = 'claude --channels plugin:claude-telegram@claude-telegram'
+export const CHANNEL_FLAG =
+  'claude --channels plugin:claude-telegram@claude-telegram --dangerously-load-development-channels'
 
 export async function setup(args: string[]): Promise<number> {
   const hooksOnly = args.includes('--hooks')
@@ -103,6 +104,9 @@ export async function setup(args: string[]): Promise<number> {
     }
     if (!live) console.log(`  ${ok('')}${bold('cctg daemon start')}   ${dim('(or just open a Claude Code session)')}`)
     console.log(`  Start a session with ${bold(CHANNEL_FLAG)}`)
+    if (!inboundAllowlisted()) {
+      console.log(`     ${dim('the second flag is what lets your Telegram messages reach the session')}`)
+    }
     if (!access.allowedUsers.length) {
       console.log(`  DM your bot; it replies with a code. Run ${bold('/cctg:access pair <code>')} in the session.`)
       console.log(`  Once you are in, ${bold('/cctg:access policy allowlist')} so strangers get nothing.`)

@@ -12,7 +12,7 @@ import { topics } from '../store/repos.ts'
 import { bad, dim, heading, info, ok, warn } from '../ui.ts'
 import { askStatus } from './client.ts'
 import { hookCommand } from './setup.ts'
-import { INSTALL_STEPS, pluginInstalled } from './plugin-state.ts'
+import { DEV_CHANNELS_FLAG, INSTALL_STEPS, inboundAllowlisted, pluginInstalled } from './plugin-state.ts'
 import { hooksInstalled, settingsPath } from './settings-file.ts'
 
 type Check = { level: 'ok' | 'warn' | 'bad'; text: string; fix?: string }
@@ -54,7 +54,7 @@ export async function doctor(): Promise<number> {
       text: `${live.sessions.length} session(s) connected`,
       fix: live.sessions.length
         ? undefined
-        : 'start Claude Code with `--channels plugin:claude-telegram@claude-telegram`',
+        : `start Claude Code with \`--channels plugin:claude-telegram@claude-telegram ${DEV_CHANNELS_FLAG}\``,
     })
   } else {
     checks.push({
@@ -92,6 +92,18 @@ export async function doctor(): Promise<number> {
         text: 'the plugin is not installed, so the channel flag resolves to nothing',
         fix: INSTALL_STEPS.join('  &&  '),
       })
+
+  if (pluginInstalled()) {
+    checks.push(inboundAllowlisted()
+      ? { level: 'ok', text: 'inbound messages are allowlisted in managed settings' }
+      : {
+          level: 'warn',
+          text: 'inbound messages need `' + DEV_CHANNELS_FLAG + '`',
+          fix: 'without it Claude Code drops everything you type to the bot — turns still mirror, '
+            + 'which is why this looks like it half works. Add the flag to the session, or see '
+            + '`/cctg:configure` for the managed-settings allowlist.',
+        })
+  }
 
   const command = hookCommand()
   const wiredByHand = hooksInstalled(command)

@@ -30,3 +30,37 @@ export const INSTALL_STEPS = [
   `claude plugin marketplace add ${MARKETPLACE}`,
   `claude plugin install ${PLUGIN_NAME}@${PLUGIN_NAME}`,
 ] as const
+
+/**
+ * Whether Claude Code will let this plugin push inbound messages.
+ *
+ * Channels have a second gate, separate from everything else: only plugins on
+ * an approved list may inject messages into a session. A self-installed plugin
+ * is not on it, so without either `--dangerously-load-development-channels` or
+ * an explicit entry in managed settings, the bridge half-works — turns mirror,
+ * topics fill, and everything typed to the bot is dropped after one line at
+ * startup. That asymmetry is why this is worth checking rather than leaving to
+ * the user to notice.
+ */
+export function inboundAllowlisted(): boolean {
+  for (const path of MANAGED_SETTINGS_PATHS) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+        allowedChannelPlugins?: { marketplace?: string; plugin?: string }[]
+      }
+      if (parsed.allowedChannelPlugins?.some(entry => entry.plugin === PLUGIN_NAME)) return true
+    } catch {
+      // Absent or unreadable: this machine has no managed settings, which is
+      // the normal case and simply means the flag is required.
+    }
+  }
+  return false
+}
+
+/** Where managed settings live, per platform. Both are root-owned. */
+export const MANAGED_SETTINGS_PATHS = process.platform === 'darwin'
+  ? ['/Library/Application Support/ClaudeCode/managed-settings.json']
+  : ['/etc/claude-code/managed-settings.json']
+
+/** The flag that lifts the inbound gate for one session. */
+export const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels'

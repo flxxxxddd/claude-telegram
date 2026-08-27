@@ -111,5 +111,31 @@ cctg daemon log -f
 A session only reaches the bridge when it was started with the channel flag:
 
 ```bash
-claude --channels plugin:claude-telegram@claude-telegram
+claude --channels plugin:claude-telegram@claude-telegram \
+       --dangerously-load-development-channels
 ```
+
+## Why the second flag
+
+Claude Code only lets channel plugins on **its own** approved list push inbound
+messages, and a self-installed plugin is not on it. Without the flag the session
+runs, the turn mirror works and the topic fills up — but anything the user types
+to the bot is dropped silently, after a single `not on the approved channels
+allowlist` line at startup. It is the likeliest cause of "it half works".
+
+The flag lifts the check for every channel plugin in that session. The narrower
+alternative is an explicit allowlist in managed settings — root-owned,
+`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS,
+`/etc/claude-code/managed-settings.json` on Linux:
+
+```json
+{
+  "channelsEnabled": true,
+  "allowedChannelPlugins": [
+    { "marketplace": "claude-telegram", "plugin": "claude-telegram" }
+  ]
+}
+```
+
+Setting `allowedChannelPlugins` **replaces** Anthropic's default list instead of
+adding to it, so any official channel plugin in use must be listed there too.

@@ -107,6 +107,15 @@ too. Keep both.
 **`access.json` that fails to parse denies everyone.** A hand-edit with a stray
 comma must not open the bot to strangers.
 
+**Claude Code gates inbound channel messages separately from everything else.**
+A channel plugin not on its approved list still loads, still serves its MCP
+tools, and still mirrors turns — inbound messages are just dropped, with one
+line at startup and nothing after. So "the topic fills up but the bot ignores
+me" is this, not a routing bug. The escape hatches are
+`--dangerously-load-development-channels` (per session, lifts the check for
+every channel plugin in it) or `allowedChannelPlugins` in managed settings,
+which **replaces** Anthropic's default list rather than extending it.
+
 **The plugin owns the mirror hooks; `settings.json` must not have a copy.** Both
 sources fire, so every event is delivered twice — and the second `Stop` closes
 an already-closed turn, finds it empty, and cancels the stream the first one is
