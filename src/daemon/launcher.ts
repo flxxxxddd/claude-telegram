@@ -10,6 +10,7 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { ccaPrefix } from '../cca.ts'
 import type { Config } from '../config.ts'
 import { projectName } from '../paths.ts'
 import type { ProjectSettings } from '../db.ts'
@@ -17,18 +18,32 @@ import type { ProjectSettings } from '../db.ts'
 /** The channel flag a session needs for the bridge to see it at all. */
 export const CHANNEL_FLAG = '--channels plugin:claude-telegram@claude-telegram'
 
+/** Without this, Claude Code silently drops everything typed to the bot. */
+export const DEV_CHANNELS_FLAG = '--dangerously-load-development-channels'
+
 /** Shell-quote a value so a path with a space cannot split into two arguments. */
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-/** The `claude` invocation implied by a project's stored settings. */
+/**
+ * The `claude` invocation implied by a project's stored settings.
+ *
+ * With an account chosen, it runs through `cca run`, which points Claude Code
+ * at that login before starting it. `cca run --best` is passed through rather
+ * than resolved here — picking the account is cca's job, and it knows things
+ * this bridge does not, such as which logins are about to expire.
+ */
 export function claudeCommand(cwd: string, settings: ProjectSettings): string {
-  const parts = ['claude', CHANNEL_FLAG]
+  const parts = ['claude', CHANNEL_FLAG, DEV_CHANNELS_FLAG]
   if (settings.model) parts.push(`--model ${settings.model}`)
   if (settings.effort) parts.push(`--effort ${settings.effort}`)
   if (settings.permission_mode) parts.push(`--permission-mode ${settings.permission_mode}`)
-  return `cd ${shellQuote(cwd)} && ${parts.join(' ')}`
+  // `cca run <name> -- <args>` forwards everything after `--` to claude, so the
+  // prefix replaces the `claude` word rather than wrapping the whole line.
+  const prefix = ccaPrefix(settings.account)
+  const invocation = prefix ? `${prefix}${parts.slice(1).join(' ')}` : parts.join(' ')
+  return `cd ${shellQuote(cwd)} && ${invocation}`
 }
 
 /**

@@ -19,19 +19,26 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 import { connect, type Socket } from 'node:net'
 import { basename } from 'node:path'
 import { z } from 'zod'
-import { paths, projectName } from '../paths.ts'
+import { currentAccount } from '../cca.ts'
+import { paths, projectName, transcriptPath } from '../paths.ts'
 import { frame, type ClientMsg, type DaemonMsg, type SessionInfo } from '../protocol.ts'
 import { spawnDaemon } from '../self.ts'
 import { VERSION } from '../version.ts'
 import { INSTRUCTIONS, TOOLS } from './tools.ts'
 
+const sessionId = process.env.CLAUDE_CODE_SESSION_ID ?? `unknown-${process.pid}`
+
 const session: SessionInfo = {
-  id: process.env.CLAUDE_CODE_SESSION_ID ?? `unknown-${process.pid}`,
+  id: sessionId,
   cwd: process.cwd(),
   title: projectName(process.cwd()) || basename(process.cwd()) || 'session',
   // The process to signal on an interrupt is Claude Code itself, not this shim.
   pid: Number(process.env.CLAUDE_PID ?? process.pid),
   launched: process.env.CCTG_LAUNCHED === '1',
+  // Resolved here, not in the daemon: this process runs in the session's own
+  // environment, so it sees the `CLAUDE_CONFIG_DIR` a cca profile set.
+  transcript: transcriptPath(process.cwd(), sessionId),
+  account: currentAccount()?.name,
 }
 
 const warn = (message: string): void => {

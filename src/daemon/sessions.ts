@@ -29,6 +29,10 @@ export type SessionEntry = {
   contextTokens?: number
   branch?: string
   lastPrompt?: string | null
+  /** Where the mirror is actually reading from, once a hook has confirmed it. */
+  transcript?: string
+  /** Whether the "this account is nearly spent" warning has already been sent. */
+  warnedAtLimit?: boolean
   /**
    * Whether a turn is open. Hook events can arrive more than once for one
    * turn — a plugin-declared hook and a hand-wired one both fire — and a

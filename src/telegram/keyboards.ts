@@ -4,10 +4,11 @@
  */
 
 import { InlineKeyboard } from 'yaebal'
+import { BEST_ACCOUNT, formatWindow, tightestWindow, type Account } from '../cca.ts'
 import type { Locale, Strings } from '../i18n/index.ts'
 import { LOCALE_NAMES, LOCALES } from '../i18n/index.ts'
 import type { SessionView } from '../protocol.ts'
-import { askCb, closeCb, langCb, permissionCb, projectCb, sessionCb, settingsCb } from './callbacks.ts'
+import { accountCb, askCb, closeCb, langCb, permissionCb, projectCb, sessionCb, settingsCb } from './callbacks.ts'
 import { shortModel } from './render.ts'
 
 /**
@@ -115,6 +116,43 @@ export function settingsPageKeyboard(
   }
   return kb.columns().row()
     .text(`← ${t.t(locale, 'controls.back')}`, settingsCb.pack({ h: handle, page: 'root' }))
+}
+
+/**
+ * Pick the account sessions in this project launch as.
+ *
+ * Each row carries the account's tightest window, because "which account" and
+ * "which account can still work" are the same question in practice.
+ */
+export function accountsKeyboard(
+  handle: string,
+  list: Account[],
+  current: string | null,
+  t: Strings,
+  locale: Locale,
+): InlineKeyboard {
+  const kb = new InlineKeyboard()
+  const mark = (value: string): string => (value === current ? '● ' : '')
+
+  kb.text(`${mark(BEST_ACCOUNT)}✨ ${t.t(locale, 'accounts.best')}`, accountCb.pack({ h: handle, name: BEST_ACCOUNT })).row()
+  for (const a of list) {
+    const window = tightestWindow(a)
+    const dot = window === undefined ? '⚪' : window.utilization >= 100 ? '🔴' : window.utilization >= 80 ? '🟡' : '🟢'
+    const detail = formatWindow(window)
+    kb.text(`${mark(a.name)}${dot} ${a.name}${detail ? ` · ${detail}` : ''}`.slice(0, 64),
+      accountCb.pack({ h: handle, name: a.name })).row()
+  }
+  // An empty name clears the choice: sessions then run as whatever cca's own
+  // active profile is, which is what someone who never used this panel gets.
+  kb.text(`${mark('')}${t.t(locale, 'accounts.inherit')}`, accountCb.pack({ h: handle, name: '' })).row()
+  return kb.text(`✖ ${t.t(locale, 'controls.close')}`, closeCb.pack({}))
+}
+
+/** The button offered when the running account has no room left. */
+export function restartOnKeyboard(handle: string, name: string, t: Strings, locale: Locale): InlineKeyboard {
+  return new InlineKeyboard()
+    .text(`▶️ ${t.t(locale, 'accounts.restartOn', { name })}`, accountCb.pack({ h: handle, name, launch: true }))
+    .style('primary')
 }
 
 /** Language switcher. */

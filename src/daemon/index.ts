@@ -14,6 +14,7 @@ import { createServer } from 'node:net'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createBot, type Api, type Bot } from 'yaebal'
 import { autoRetry, autoAnswer, i18n } from 'yaebal'
+import { BEST_ACCOUNT, account as ccaAccount, accounts as ccaAccounts, bestAccount, formatReset } from '../cca.ts'
 import { botToken, loadConfig, type Config } from '../config.ts'
 import { closeDb, db } from '../db.ts'
 import { en, ru, strings, type Locale, type Strings } from '../i18n/index.ts'
@@ -23,6 +24,7 @@ import { frame, type ClientMsg, type DaemonMsg, type DaemonStatus, type SessionI
 import { loadAccess } from '../store/access.ts'
 import { handles, hud as hudStore, kvStore, queue, settings, topics as topicStore } from '../store/repos.ts'
 import { Hud } from '../telegram/hud.ts'
+import { restartOnKeyboard } from '../telegram/keyboards.ts'
 import { renderText, renderTurn } from '../telegram/render.ts'
 import { TurnStream } from '../telegram/stream.ts'
 import { TopicManager } from '../telegram/topics.ts'
@@ -299,7 +301,11 @@ export class Daemon {
   /* --------------------------------------------------------------- mirror -- */
 
   private attachMirror(entry: SessionEntry): void {
-    const path = transcriptPath(entry.info.cwd, entry.info.id)
+    // The session resolved this in its own environment. Recomputing it here
+    // would follow a file under the daemon's home, which for a `cca --isolated`
+    // profile nothing ever writes.
+    const path = entry.transcript ?? entry.info.transcript ?? transcriptPath(entry.info.cwd, entry.info.id)
+    entry.transcript = path
     const mirror = new TurnMirror(entry.info.id, entry.info.cwd, path, {
       onUpdate: snap => {
         entry.model = snap.model ?? entry.model
@@ -322,6 +328,13 @@ export class Daemon {
     if (!entry) {
       this.noteUnregistered(msg)
       return
+    }
+
+    // Claude Code names the transcript itself, so its path outranks the one the
+    // session computed. They differ only if this project's addressing has moved.
+    if (msg.transcript && entry.transcript !== msg.transcript) {
+      entry.transcript = msg.transcript
+      if (this.config.mirror !== 'off') this.attachMirror(entry)
     }
 
     switch (msg.event) {
@@ -418,6 +431,9 @@ export class Daemon {
     }
     entry.stream = undefined
     this.drawHud(entry, 'done')
+    // Checked at the end of a turn, when the usage cache has just been written
+    // for the tokens this turn spent.
+    this.checkAccountLimit(entry)
     this.log(snap
       ? `turn done in ${entry.info.cwd}: ${snap.prose.length} message(s), ${snap.tools.length} tool call(s)`
       : `turn done in ${entry.info.cwd}: nothing mirrored (no transcript follower)`)
@@ -435,6 +451,45 @@ export class Daemon {
     } catch (err) {
       this.topics.noteSendFailure(chatId, threadId, err)
     }
+  }
+
+  /**
+   * Warn once when the account a session runs on is about to stop it, and offer
+   * the account that still has room.
+   *
+   * The point of knowing this from a phone is acting on it: being told at 100%
+   * with no way to move is just a worse version of finding out from a failed
+   * turn. So the warning carries the button, and the threshold is 90% — a turn
+   * begun at 95% will not finish.
+   */
+  private checkAccountLimit(entry: SessionEntry): void {
+    const name = entry.info.account
+    if (!name || !entry.chatId) return
+    const running = ccaAccount(name)
+    const utilization = running?.session?.utilization
+    if (utilization === undefined || utilization < 90) {
+      // Recovered, or never near the line: re-arm so the next window warns too.
+      entry.warnedAtLimit = false
+      return
+    }
+    if (entry.warnedAtLimit) return
+    entry.warnedAtLimit = true
+
+    const locale = this.localeFor(entry.chatId)
+    const alternative = bestAccount(ccaAccounts().filter(a => a.name !== name))
+    const lines = [this.t.t(locale, 'accounts.warning', { name, percent: Math.round(utilization) })]
+    const reset = formatReset(running?.session?.resetsAt)
+    if (reset) lines.push(this.t.t(locale, 'accounts.warningReset', { reset }))
+
+    const offer = alternative && (alternative.session?.utilization ?? 100) < 80 ? alternative.name : undefined
+    void this.api.sendRichMessage({
+      chat_id: entry.chatId,
+      message_thread_id: entry.threadId,
+      rich_message: renderText(lines.join(' ')).toInputRichMessage(),
+      ...(offer
+        ? { reply_markup: restartOnKeyboard(handles.of(this.conn, entry.info.cwd), offer, this.t, locale) }
+        : {}),
+    }).catch(() => undefined)
   }
 
   private async onTitle(sessionId: string, title: string): Promise<void> {
@@ -464,6 +519,9 @@ export class Daemon {
           contextTokens: entry.contextTokens,
           branch: entry.branch,
           queued: queue.depth(this.conn, entry.info.cwd) || undefined,
+          // Re-read every draw: the numbers move while the session works, and
+          // cca refreshes its cache underneath us.
+          account: entry.info.account ? ccaAccount(entry.info.account) : undefined,
         },
         handle: handles.of(this.conn, entry.info.cwd),
         canInterrupt: entry.info.launched,

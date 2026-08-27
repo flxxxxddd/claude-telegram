@@ -10016,12 +10016,114 @@ var init_lib16 = __esm(() => {
   };
 });
 
+// src/cca.ts
+import { spawnSync } from "child_process";
+import { existsSync, readFileSync } from "fs";
+import { homedir as homedir2 } from "os";
+import { join as join2, resolve as resolve2 } from "path";
+function ccaHome() {
+  return process.env.CCA_HOME ?? join2(homedir2(), ".ccacc");
+}
+function readJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function parseReset(value) {
+  if (!value)
+    return;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+function readWindow(w) {
+  if (!w || typeof w.utilization !== "number")
+    return;
+  return { utilization: w.utilization, resetsAt: parseReset(w.resets_at) };
+}
+function ccaPresent() {
+  return existsSync(configPath());
+}
+function ccaRunnable() {
+  return spawnSync("command", ["-v", "cca"], { shell: true }).status === 0;
+}
+function accounts() {
+  const config = readJson(configPath());
+  if (!config?.profiles)
+    return [];
+  return Object.entries(config.profiles).map(([name, profile]) => {
+    const usage = readJson(usagePath(name));
+    return {
+      name,
+      email: profile.email,
+      mode: profile.mode === "isolated" ? "isolated" : "shared",
+      dir: profile.dir ?? "",
+      active: config.activeProfile === name,
+      session: readWindow(usage?.usage?.five_hour),
+      weekly: readWindow(usage?.usage?.seven_day),
+      fetchedAt: usage?.fetchedAt
+    };
+  });
+}
+function account(name) {
+  return accounts().find((a) => a.name === name);
+}
+function currentAccount(env = process.env) {
+  const dir = env.CLAUDE_SECURESTORAGE_CONFIG_DIR ?? env.CLAUDE_CONFIG_DIR;
+  if (!dir)
+    return;
+  const target = resolve2(dir);
+  return accounts().find((a) => a.dir && resolve2(a.dir) === target);
+}
+function bestAccount(list = accounts()) {
+  const score = (a) => {
+    if (!a.session && !a.weekly)
+      return -1;
+    return 100 - Math.max(a.session?.utilization ?? 0, (a.weekly?.utilization ?? 0) / 2);
+  };
+  return [...list].sort((a, b) => score(b) - score(a))[0];
+}
+function tightestWindow(a) {
+  if (!a.session)
+    return a.weekly;
+  if (!a.weekly)
+    return a.session;
+  return a.session.utilization >= a.weekly.utilization ? a.session : a.weekly;
+}
+function formatReset(at) {
+  if (!at)
+    return;
+  const delta = at - Date.now();
+  if (delta <= 0)
+    return;
+  const hours = Math.floor(delta / 3600000);
+  const minutes = Math.round(delta % 3600000 / 60000);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+function formatWindow(w) {
+  if (!w)
+    return;
+  const reset = formatReset(w.resetsAt);
+  return reset ? `${Math.round(w.utilization)}% \xB7 ${reset}` : `${Math.round(w.utilization)}%`;
+}
+function ccaPrefix(name) {
+  if (!name || !ccaRunnable())
+    return "";
+  return name === BEST_ACCOUNT ? "cca run --best -- " : `cca run ${shellName(name)} -- `;
+}
+function shellName(name) {
+  return /^[A-Za-z0-9._-]+$/.test(name) ? name : `'${name.replaceAll("'", `'\\''`)}'`;
+}
+var configPath = () => join2(ccaHome(), "config.json"), usagePath = (name) => join2(ccaHome(), "cache", "usage", `${name}.json`), BEST_ACCOUNT = "@best";
+var init_cca = () => {};
+
 // src/config.ts
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync as existsSync2, mkdirSync, readFileSync as readFileSync2, writeFileSync } from "fs";
 import { dirname } from "path";
 function readFile() {
   try {
-    const raw = JSON.parse(readFileSync(paths.config, "utf8"));
+    const raw = JSON.parse(readFileSync2(paths.config, "utf8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
     return {};
@@ -10047,9 +10149,9 @@ function botToken() {
   const fromEnv = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (fromEnv)
     return fromEnv;
-  if (!existsSync(paths.env))
+  if (!existsSync2(paths.env))
     return;
-  for (const line of readFileSync(paths.env, "utf8").split(`
+  for (const line of readFileSync2(paths.env, "utf8").split(`
 `)) {
     const m = /^\s*(?:export\s+)?TELEGRAM_BOT_TOKEN\s*=\s*(.*)$/.exec(line);
     if (m?.[1])
@@ -10059,7 +10161,7 @@ function botToken() {
 }
 function saveBotToken(token) {
   mkdirSync(dirname(paths.env), { recursive: true });
-  const keep = existsSync(paths.env) ? readFileSync(paths.env, "utf8").split(`
+  const keep = existsSync2(paths.env) ? readFileSync2(paths.env, "utf8").split(`
 `).filter((l) => !/^\s*(?:export\s+)?TELEGRAM_BOT_TOKEN\s*=/.test(l)) : [];
   const body = [...keep.filter(Boolean), `TELEGRAM_BOT_TOKEN=${token}`].join(`
 `);
@@ -10168,7 +10270,8 @@ var init_db = __esm(() => {
    CREATE TABLE kv (
      key   TEXT NOT NULL PRIMARY KEY,
      value TEXT NOT NULL
-   );`
+   );`,
+    `ALTER TABLE settings ADD COLUMN account TEXT;`
   ];
 });
 
@@ -10192,6 +10295,7 @@ Run this in your Claude Code session:
 ` + `/sessions \u2014 pick which session this chat routes to
 ` + `/new \u2014 open a project topic and start a session
 ` + `/settings \u2014 model, effort and permissions
+` + `/accounts \u2014 which Claude.ai account sessions here use
 ` + "/lang \u2014 switch language"
     },
     hud: {
@@ -10201,6 +10305,9 @@ Run this in your Claude Code session:
       effort: "Effort",
       context: "Context",
       branch: "Branch",
+      account: "Account",
+      sessionLimit: "Session limit",
+      weeklyLimit: "Weekly limit",
       session: "Session",
       state: "State",
       updated: "Updates automatically as the session works.",
@@ -10261,6 +10368,17 @@ Run this in your Claude Code session:
       back: "Back",
       close: "Close"
     },
+    accounts: {
+      none: "claude-account-manager is not set up on this machine, so there are no accounts to pick.",
+      pick: "Which account should sessions started here use?",
+      chosen: "New sessions here will use {name}.",
+      best: "Whichever has room",
+      spent: "spent",
+      warning: "{name} is at {percent}% of its session limit.",
+      warningReset: "It resets in {reset}.",
+      restartOn: "Restart on {name}",
+      inherit: "Whatever cca is set to"
+    },
     lang: {
       pick: "Pick a language:",
       changed: "Language set to English."
@@ -10292,6 +10410,7 @@ var init_ru = __esm(() => {
 ` + `/sessions \u2014 \u0432\u044B\u0431\u0440\u0430\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u044E \u0434\u043B\u044F \u044D\u0442\u043E\u0433\u043E \u0447\u0430\u0442\u0430
 ` + `/new \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u0442\u043E\u043F\u0438\u043A \u043F\u0440\u043E\u0435\u043A\u0442\u0430 \u0438 \u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u044E
 ` + `/settings \u2014 \u043C\u043E\u0434\u0435\u043B\u044C, effort \u0438 \u043F\u0440\u0430\u0432\u0430
+` + `/accounts \u2014 \u043F\u043E\u0434 \u043A\u0430\u043A\u0438\u043C \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u043C Claude.ai \u0438\u0434\u0443\u0442 \u0441\u0435\u0441\u0441\u0438\u0438
 ` + "/lang \u2014 \u0441\u043C\u0435\u043D\u0438\u0442\u044C \u044F\u0437\u044B\u043A"
     },
     hud: {
@@ -10301,6 +10420,9 @@ var init_ru = __esm(() => {
       effort: "Effort",
       context: "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442",
       branch: "\u0412\u0435\u0442\u043A\u0430",
+      account: "\u0410\u043A\u043A\u0430\u0443\u043D\u0442",
+      sessionLimit: "\u041B\u0438\u043C\u0438\u0442 \u0441\u0435\u0441\u0441\u0438\u0438",
+      weeklyLimit: "\u041B\u0438\u043C\u0438\u0442 \u043D\u0435\u0434\u0435\u043B\u0438",
       session: "\u0421\u0435\u0441\u0441\u0438\u044F",
       state: "\u0421\u0442\u0430\u0442\u0443\u0441",
       updated: "\u0417\u0430\u043A\u0440\u0435\u043F \u043E\u0431\u043D\u043E\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u043F\u043E \u0441\u043E\u0431\u044B\u0442\u0438\u044F\u043C \u0441\u0435\u0441\u0441\u0438\u0438.",
@@ -10360,6 +10482,17 @@ var init_ru = __esm(() => {
       saved: "\u0421\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u043E: {what}.",
       back: "\u041D\u0430\u0437\u0430\u0434",
       close: "\u0417\u0430\u043A\u0440\u044B\u0442\u044C"
+    },
+    accounts: {
+      none: "claude-account-manager \u043D\u0430 \u044D\u0442\u043E\u0439 \u043C\u0430\u0448\u0438\u043D\u0435 \u043D\u0435 \u043D\u0430\u0441\u0442\u0440\u043E\u0435\u043D \u2014 \u0432\u044B\u0431\u0438\u0440\u0430\u0442\u044C \u043D\u0435 \u0438\u0437 \u0447\u0435\u0433\u043E.",
+      pick: "\u041F\u043E\u0434 \u043A\u0430\u043A\u0438\u043C \u0430\u043A\u043A\u0430\u0443\u043D\u0442\u043E\u043C \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u0442\u044C \u0441\u0435\u0441\u0441\u0438\u0438 \u043E\u0442\u0441\u044E\u0434\u0430?",
+      chosen: "\u041D\u043E\u0432\u044B\u0435 \u0441\u0435\u0441\u0441\u0438\u0438 \u0437\u0434\u0435\u0441\u044C \u043F\u043E\u0439\u0434\u0443\u0442 \u043F\u043E\u0434 {name}.",
+      best: "\u0413\u0434\u0435 \u0435\u0441\u0442\u044C \u0437\u0430\u043F\u0430\u0441",
+      spent: "\u0432\u044B\u0436\u0430\u0442",
+      warning: "{name} \u2014 {percent}% \u043B\u0438\u043C\u0438\u0442\u0430 \u0441\u0435\u0441\u0441\u0438\u0438.",
+      warningReset: "\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u0441\u044F \u0447\u0435\u0440\u0435\u0437 {reset}.",
+      restartOn: "\u041F\u0435\u0440\u0435\u0437\u0430\u043F\u0443\u0441\u0442\u0438\u0442\u044C \u043D\u0430 {name}",
+      inherit: "\u041A\u0430\u043A \u0432\u044B\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u043E \u0432 cca"
     },
     lang: {
       pick: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u044F\u0437\u044B\u043A:",
@@ -10672,7 +10805,7 @@ var emptyTurn = (sessionId, cwd) => ({
 var init_transcript = () => {};
 
 // src/store/access.ts
-import { existsSync as existsSync2, mkdirSync as mkdirSync3, readFileSync as readFileSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync3, statSync as statSync2, writeFileSync as writeFileSync2 } from "fs";
 function mtime() {
   try {
     return statSync2(paths.access).mtimeMs;
@@ -10686,8 +10819,8 @@ function loadAccess() {
     return cached.value;
   let parsed = {};
   try {
-    if (existsSync2(paths.access))
-      parsed = JSON.parse(readFileSync2(paths.access, "utf8"));
+    if (existsSync3(paths.access))
+      parsed = JSON.parse(readFileSync3(paths.access, "utf8"));
   } catch {
     parsed = {};
   }
@@ -10902,17 +11035,19 @@ var init_repos = __esm(() => {
       return rows.map((r) => JSON.parse(r.payload));
     }
   };
-  EMPTY = { model: null, effort: null, permission_mode: null };
+  EMPTY = { model: null, effort: null, permission_mode: null, account: null };
   settings = {
     get(conn, cwd) {
-      const row = conn.query("SELECT cwd, model, effort, permission_mode FROM settings WHERE cwd = ?").get(cwd);
+      const row = conn.query("SELECT cwd, model, effort, permission_mode, account FROM settings WHERE cwd = ?").get(cwd);
       return row ?? { cwd, ...EMPTY };
     },
     patch(conn, cwd, patch) {
       const next = { ...settings.get(conn, cwd), ...patch };
-      conn.query(`INSERT INTO settings (cwd, model, effort, permission_mode, updated_at) VALUES (?, ?, ?, ?, ?)
+      conn.query(`INSERT INTO settings (cwd, model, effort, permission_mode, account, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (cwd) DO UPDATE SET model = excluded.model, effort = excluded.effort,
-                  permission_mode = excluded.permission_mode, updated_at = excluded.updated_at`).run(cwd, next.model, next.effort, next.permission_mode, Date.now());
+                  permission_mode = excluded.permission_mode, account = excluded.account,
+                  updated_at = excluded.updated_at`).run(cwd, next.model, next.effort, next.permission_mode, next.account, Date.now());
       return next;
     }
   };
@@ -10954,7 +11089,7 @@ var init_repos = __esm(() => {
 });
 
 // src/telegram/callbacks.ts
-var permissionCb, askCb, sessionCb, projectCb, settingsCb, langCb, closeCb;
+var permissionCb, askCb, sessionCb, projectCb, settingsCb, langCb, accountCb, closeCb;
 var init_callbacks = __esm(() => {
   init_lib16();
   permissionCb = callbackData("p", {
@@ -10979,6 +11114,11 @@ var init_callbacks = __esm(() => {
   });
   langCb = callbackData("l", {
     locale: field.enum(["en", "ru"])
+  });
+  accountCb = callbackData("c", {
+    h: field.string(),
+    name: field.string(),
+    launch: field.boolean().default(false)
   });
   closeCb = callbackData("x", {});
 });
@@ -11210,11 +11350,11 @@ var init_blocks = __esm(() => {
 });
 
 // node_modules/@yaebal/rich/lib/draft.js
-function resolve2(input, fallbackDialect) {
+function resolve3(input, fallbackDialect) {
   if (typeof input === "string")
     return { dialect: fallbackDialect, text: input };
   if (input instanceof RichDocument)
-    return resolve2(input.toInputRichMessage(), fallbackDialect);
+    return resolve3(input.toInputRichMessage(), fallbackDialect);
   if (input.html !== undefined) {
     return {
       dialect: "html",
@@ -11266,7 +11406,7 @@ class RichMessageDraft {
   }
   async rewrite(input) {
     this.#assertOpen();
-    this.#state = resolve2(input, this.#state?.dialect ?? "html");
+    this.#state = resolve3(input, this.#state?.dialect ?? "html");
     await this.#pushCurrent();
     this.#arm();
   }
@@ -11275,7 +11415,7 @@ class RichMessageDraft {
     if (!this.#state) {
       throw new Error("RichMessageDraft: write() before the first rewrite()");
     }
-    const next = resolve2(input, this.#state.dialect);
+    const next = resolve3(input, this.#state.dialect);
     if (next.dialect !== this.#state.dialect) {
       throw new Error(`RichMessageDraft: write() dialect "${next.dialect}" doesn't match the draft's "${this.#state.dialect}"`);
     }
@@ -11313,7 +11453,7 @@ class RichMessageDraft {
   }
   async send(override, extra = {}) {
     this.#stop();
-    const state = override !== undefined ? resolve2(override, this.#state?.dialect ?? "html") : this.#state;
+    const state = override !== undefined ? resolve3(override, this.#state?.dialect ?? "html") : this.#state;
     if (!state) {
       throw new Error("RichMessageDraft: send() with nothing written \u2014 call rewrite()/write() first or pass an override");
     }
@@ -11550,6 +11690,15 @@ function renderHud(d, o) {
   ];
   if (d.branch)
     rows.push([cell(t.t(locale, "hud.branch")), cell(code2(d.branch))]);
+  if (d.account) {
+    rows.push([cell(t.t(locale, "hud.account")), cell(bold3(d.account.name))]);
+    const session2 = formatWindow(d.account.session);
+    const weekly = formatWindow(d.account.weekly);
+    if (session2)
+      rows.push([cell(t.t(locale, "hud.sessionLimit")), cell(limitCell(d.account.session?.utilization, session2))]);
+    if (weekly)
+      rows.push([cell(t.t(locale, "hud.weeklyLimit")), cell(limitCell(d.account.weekly?.utilization, weekly))]);
+  }
   if (d.queued)
     rows.push([cell(t.t(locale, "hud.session")), cell(t.t(locale, "project.queued", { n: d.queued }))]);
   const blocks = [heading2(2, state)];
@@ -11558,6 +11707,12 @@ function renderHud(d, o) {
   blocks.push(table(rows, { bordered: true }));
   blocks.push(footer(italic2(t.t(locale, "hud.updated"))));
   return document2(blocks);
+}
+function limitCell(utilization, text2) {
+  if (utilization === undefined)
+    return text2;
+  const dot = utilization >= 100 ? "\uD83D\uDD34" : utilization >= 80 ? "\uD83D\uDFE1" : "\uD83D\uDFE2";
+  return `${dot} ${text2}`;
 }
 function renderPermission(tool, preview, o) {
   const blocks = [paragraph(o.t.t(o.locale, "permission.ask", { tool }))];
@@ -11571,6 +11726,7 @@ function renderText(text2) {
 var STATE_DOT, STATE_KEY, DEFAULT_WINDOW = 200000, CAP = 3500;
 var init_render2 = __esm(() => {
   init_lib17();
+  init_cca();
   STATE_DOT = {
     idle: "\u26AA",
     working: "\uD83D\uDD35",
@@ -11637,6 +11793,22 @@ function settingsPageKeyboard(handle2, page, values, current, t, locale) {
   }
   return kb.columns().row().text(`\u2190 ${t.t(locale, "controls.back")}`, settingsCb.pack({ h: handle2, page: "root" }));
 }
+function accountsKeyboard(handle2, list2, current, t, locale) {
+  const kb = new InlineKeyboard;
+  const mark = (value) => value === current ? "\u25CF " : "";
+  kb.text(`${mark(BEST_ACCOUNT)}\u2728 ${t.t(locale, "accounts.best")}`, accountCb.pack({ h: handle2, name: BEST_ACCOUNT })).row();
+  for (const a of list2) {
+    const window = tightestWindow(a);
+    const dot = window === undefined ? "\u26AA" : window.utilization >= 100 ? "\uD83D\uDD34" : window.utilization >= 80 ? "\uD83D\uDFE1" : "\uD83D\uDFE2";
+    const detail = formatWindow(window);
+    kb.text(`${mark(a.name)}${dot} ${a.name}${detail ? ` \xB7 ${detail}` : ""}`.slice(0, 64), accountCb.pack({ h: handle2, name: a.name })).row();
+  }
+  kb.text(`${mark("")}${t.t(locale, "accounts.inherit")}`, accountCb.pack({ h: handle2, name: "" })).row();
+  return kb.text(`\u2716 ${t.t(locale, "controls.close")}`, closeCb.pack({}));
+}
+function restartOnKeyboard(handle2, name, t, locale) {
+  return new InlineKeyboard().text(`\u25B6\uFE0F ${t.t(locale, "accounts.restartOn", { name })}`, accountCb.pack({ h: handle2, name, launch: true })).style("primary");
+}
 function langKeyboard(current) {
   const kb = new InlineKeyboard;
   for (const locale of LOCALES) {
@@ -11647,6 +11819,7 @@ function langKeyboard(current) {
 var MODELS, EFFORTS, PERMISSION_MODES, isModel = (v) => MODELS.includes(v), isEffort = (v) => EFFORTS.includes(v), isPermissionMode = (v) => PERMISSION_MODES.includes(v);
 var init_keyboards = __esm(() => {
   init_lib16();
+  init_cca();
   init_i18n();
   init_callbacks();
   init_render2();
@@ -12042,30 +12215,32 @@ class TypingKeeper {
 var REFRESH_MS = 4000;
 
 // src/version.ts
-var VERSION = "0.1.3";
+var VERSION = "0.1.4";
 
 // src/daemon/launcher.ts
 import { spawn as spawn2 } from "child_process";
-import { existsSync as existsSync3 } from "fs";
+import { existsSync as existsSync4 } from "fs";
 function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 function claudeCommand(cwd, settings2) {
-  const parts = ["claude", CHANNEL_FLAG];
+  const parts = ["claude", CHANNEL_FLAG, DEV_CHANNELS_FLAG];
   if (settings2.model)
     parts.push(`--model ${settings2.model}`);
   if (settings2.effort)
     parts.push(`--effort ${settings2.effort}`);
   if (settings2.permission_mode)
     parts.push(`--permission-mode ${settings2.permission_mode}`);
-  return `cd ${shellQuote(cwd)} && ${parts.join(" ")}`;
+  const prefix = ccaPrefix(settings2.account);
+  const invocation = prefix ? `${prefix}${parts.slice(1).join(" ")}` : parts.join(" ");
+  return `cd ${shellQuote(cwd)} && ${invocation}`;
 }
 function renderLaunchCommand(template, cwd, settings2) {
   return template.replaceAll("{cwd}", shellQuote(cwd)).replaceAll("{name}", shellQuote(projectName(cwd))).replaceAll("{claude}", claudeCommand(cwd, settings2));
 }
 function launch(cwd, config, settings2) {
   const manual = claudeCommand(cwd, settings2);
-  if (!existsSync3(cwd))
+  if (!existsSync4(cwd))
     return { spawned: false, reason: "missing-directory", command: manual };
   if (!config.launchCmd.trim())
     return { spawned: false, reason: "not-configured", command: manual };
@@ -12084,8 +12259,9 @@ function launch(cwd, config, settings2) {
     return { spawned: false, reason: "failed", command: command2, detail: err instanceof Error ? err.message : String(err) };
   }
 }
-var CHANNEL_FLAG = "--channels plugin:claude-telegram@claude-telegram";
+var CHANNEL_FLAG = "--channels plugin:claude-telegram@claude-telegram", DEV_CHANNELS_FLAG = "--dangerously-load-development-channels";
 var init_launcher = __esm(() => {
+  init_cca();
   init_paths();
 });
 
@@ -12151,13 +12327,12 @@ function installHandlers(bot, d) {
   bot.command("status", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    const c = ctx;
-    const chatId2 = chatIdOf(c);
-    const locale = tr(c);
-    const cwd = d.projectFor(chatId2, threadIdOf(c));
+    const chatId2 = chatIdOf(ctx);
+    const locale = tr(ctx);
+    const cwd = d.projectFor(chatId2, threadIdOf(ctx));
     const entry = cwd ? d.sessions.forProject(cwd)[0] : d.sessions.get(bindings.get(d.conn, chatId2) ?? "") ?? d.sessions.mostRecent();
     if (!entry) {
-      await say(c, d.t.t(locale, "errors.noSession"));
+      await say(ctx, d.t.t(locale, "errors.noSession"));
       return;
     }
     const doc = renderHud({
@@ -12168,28 +12343,28 @@ function installHandlers(bot, d) {
       effort: entry.effort,
       contextTokens: entry.contextTokens,
       branch: entry.branch,
-      queued: queue.depth(d.conn, entry.info.cwd) || undefined
+      queued: queue.depth(d.conn, entry.info.cwd) || undefined,
+      account: entry.info.account ? account(entry.info.account) : undefined
     }, { t: d.t, locale });
     await d.api.sendRichMessage({
       chat_id: chatId2,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: doc.toInputRichMessage()
     });
   });
   bot.command("sessions", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    const c = ctx;
-    const chatId2 = chatIdOf(c);
-    const locale = tr(c);
+    const chatId2 = chatIdOf(ctx);
+    const locale = tr(ctx);
     const views = d.sessions.views();
     if (!views.length) {
-      await say(c, d.t.t(locale, "sessions.none"));
+      await say(ctx, d.t.t(locale, "sessions.none"));
       return;
     }
     await d.api.sendRichMessage({
       chat_id: chatId2,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, "sessions.pick")).toInputRichMessage(),
       reply_markup: sessionsKeyboard(views, bindings.get(d.conn, chatId2), d.t, locale)
     });
@@ -12197,17 +12372,16 @@ function installHandlers(bot, d) {
   bot.command("new", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    const c = ctx;
-    const chatId2 = chatIdOf(c);
-    const locale = tr(c);
+    const chatId2 = chatIdOf(ctx);
+    const locale = tr(ctx);
     const projects = d.knownProjects(chatId2);
     if (!projects.length) {
-      await say(c, d.t.t(locale, "sessions.none"));
+      await say(ctx, d.t.t(locale, "sessions.none"));
       return;
     }
     await d.api.sendRichMessage({
       chat_id: chatId2,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, "project.pick")).toInputRichMessage(),
       reply_markup: projectsKeyboard(projects.map((p) => ({
         handle: handles.of(d.conn, p.cwd),
@@ -12219,30 +12393,74 @@ function installHandlers(bot, d) {
   bot.command("settings", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    const c = ctx;
-    const chatId2 = chatIdOf(c);
-    const locale = tr(c);
-    const cwd = d.projectFor(chatId2, threadIdOf(c)) ?? d.sessions.get(bindings.get(d.conn, chatId2) ?? "")?.info.cwd ?? d.sessions.mostRecent()?.info.cwd;
+    const chatId2 = chatIdOf(ctx);
+    const locale = tr(ctx);
+    const cwd = projectContext(d, chatId2, threadIdOf(ctx));
     if (!cwd) {
-      await say(c, d.t.t(locale, "errors.noSession"));
+      await say(ctx, d.t.t(locale, "errors.noSession"));
       return;
     }
     const handle2 = handles.of(d.conn, cwd);
     await d.api.sendRichMessage({
       chat_id: chatId2,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, "controls.applies")).toInputRichMessage(),
       reply_markup: settingsRootKeyboard(handle2, d.settingsFor(cwd), d.t, locale)
+    });
+  });
+  bot.command("accounts", async (ctx) => {
+    if (!await allowed(d, ctx))
+      return;
+    const chatId2 = chatIdOf(ctx);
+    const locale = tr(ctx);
+    const list2 = accounts();
+    if (!ccaPresent() || !list2.length) {
+      await say(ctx, d.t.t(locale, "accounts.none"));
+      return;
+    }
+    const cwd = projectContext(d, chatId2, threadIdOf(ctx));
+    if (!cwd) {
+      await say(ctx, d.t.t(locale, "errors.noSession"));
+      return;
+    }
+    await d.api.sendRichMessage({
+      chat_id: chatId2,
+      message_thread_id: threadIdOf(ctx),
+      rich_message: renderText(d.t.t(locale, "accounts.pick")).toInputRichMessage(),
+      reply_markup: accountsKeyboard(handles.of(d.conn, cwd), list2, d.settingsFor(cwd).account, d.t, locale)
+    });
+  });
+  bot.callbackQuery(accountCb, async (ctx) => {
+    const chatId2 = String(ctx.chat?.id ?? "");
+    const locale = d.localeFor(chatId2);
+    const cwd = handles.get(d.conn, ctx.queryData.h);
+    if (!cwd) {
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, "permission.expired") });
+      return;
+    }
+    const chosen = ctx.queryData.name || null;
+    settings.patch(d.conn, cwd, { account: chosen });
+    const label = chosen === BEST_ACCOUNT ? d.t.t(locale, "accounts.best") : chosen ?? d.t.t(locale, "accounts.inherit");
+    if (ctx.queryData.launch) {
+      const result = launch(cwd, d.config, d.settingsFor(cwd));
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, "accounts.chosen", { name: label }) });
+      await d.sendRich(chatId2, threadIdOf(ctx), result.spawned ? d.t.t(locale, "project.starting", { name: projectLabel(cwd) }) : d.t.t(locale, "project.launchHint", { cmd: result.command }));
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: d.t.t(locale, "accounts.chosen", { name: label }) });
+    await ctx.editReplyMarkup({
+      reply_markup: accountsKeyboard(ctx.queryData.h, accounts(), chosen, d.t, locale)
+    }).catch(() => {
+      return;
     });
   });
   bot.command("lang", async (ctx) => {
     if (!await allowed(d, ctx))
       return;
-    const c = ctx;
-    const locale = tr(c);
+    const locale = tr(ctx);
     await d.api.sendRichMessage({
-      chat_id: chatIdOf(c),
-      message_thread_id: threadIdOf(c),
+      chat_id: chatIdOf(ctx),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, "lang.pick")).toInputRichMessage(),
       reply_markup: langKeyboard(locale)
     });
@@ -12354,7 +12572,6 @@ function installHandlers(bot, d) {
     });
   });
   bot.on("message:text", async (ctx) => {
-    const c = ctx;
     if (ctx.message?.text?.startsWith("/"))
       return;
     await routeInbound(d, ctx, ctx.message?.text ?? "");
@@ -12365,6 +12582,9 @@ function installHandlers(bot, d) {
   bot.on("message:document", async (ctx) => {
     await routeInbound(d, ctx, ctx.message?.caption ?? "");
   });
+}
+function projectContext(d, chatId2, threadId) {
+  return d.projectFor(chatId2, threadId) ?? d.sessions.get(bindings.get(d.conn, chatId2) ?? "")?.info.cwd ?? d.sessions.mostRecent()?.info.cwd ?? null;
 }
 async function allowed(d, ctx) {
   const chatId2 = chatIdOf(ctx);
@@ -12492,6 +12712,7 @@ function interrupt(pid) {
 }
 var chatIdOf = (ctx) => String(ctx.chat?.id ?? ""), threadIdOf = (ctx) => ctx.messageThreadId, isPrivate2 = (ctx) => ctx.chat?.type === "private", projectLabel = (cwd) => cwd.split("/").filter(Boolean).pop() ?? cwd;
 var init_bot2 = __esm(() => {
+  init_cca();
   init_paths();
   init_access();
   init_repos();
@@ -12571,8 +12792,8 @@ var init_pending = __esm(() => {
 });
 
 // src/daemon/tools.ts
-import { createWriteStream, existsSync as existsSync4, mkdirSync as mkdirSync4, statSync as statSync3 } from "fs";
-import { basename, extname, resolve as resolve3 } from "path";
+import { createWriteStream, existsSync as existsSync5, mkdirSync as mkdirSync4, statSync as statSync3 } from "fs";
+import { basename, extname, resolve as resolve4 } from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
 async function runTool(d, sessionId, name, args) {
@@ -12626,8 +12847,8 @@ async function reply2(d, sessionId, args) {
   return `sent ${sent.join(", ")}`;
 }
 async function sendFile(d, chatId2, threadId, path) {
-  const abs = resolve3(path);
-  if (!existsSync4(abs))
+  const abs = resolve4(path);
+  if (!existsSync5(abs))
     throw new Error(`no such file: ${abs}`);
   const size = statSync3(abs).size;
   if (size > MAX_UPLOAD)
@@ -12686,8 +12907,8 @@ async function ask(d, sessionId, args) {
     rich_message: renderText(question).toInputRichMessage(),
     reply_markup: askKeyboard(id, options)
   });
-  return new Promise((resolve4) => {
-    d.pending.addAsk({ id, sessionId, options, chatId: chatId2, messageId: message.message_id, resolve: resolve4 }, (pendingAsk) => {
+  return new Promise((resolve5) => {
+    d.pending.addAsk({ id, sessionId, options, chatId: chatId2, messageId: message.message_id, resolve: resolve5 }, (pendingAsk) => {
       d.api.editMessageReplyMarkup({ chat_id: pendingAsk.chatId, message_id: pendingAsk.messageId ?? 0 }).catch(() => {
         return;
       });
@@ -12788,7 +13009,7 @@ __export(exports_daemon, {
   Daemon: () => Daemon
 });
 import { createServer } from "net";
-import { existsSync as existsSync5, mkdirSync as mkdirSync5, readFileSync as readFileSync3, unlinkSync, writeFileSync as writeFileSync3 } from "fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync5, readFileSync as readFileSync4, unlinkSync, writeFileSync as writeFileSync3 } from "fs";
 
 class Daemon {
   conn = db();
@@ -12848,13 +13069,13 @@ class Daemon {
   }
   async claimSingleInstance() {
     mkdirSync5(paths.state, { recursive: true });
-    if (existsSync5(paths.pid)) {
-      const pid = Number(readFileSync3(paths.pid, "utf8").trim());
+    if (existsSync6(paths.pid)) {
+      const pid = Number(readFileSync4(paths.pid, "utf8").trim());
       if (pid && pid !== process.pid && isAlive(pid)) {
         throw new Error(`a daemon is already running (pid ${pid}). Stop it with \`cctg daemon stop\`.`);
       }
     }
-    if (existsSync5(paths.sock)) {
+    if (existsSync6(paths.sock)) {
       try {
         unlinkSync(paths.sock);
       } catch {}
@@ -12992,7 +13213,8 @@ class Daemon {
     }
   }
   attachMirror(entry) {
-    const path = transcriptPath(entry.info.cwd, entry.info.id);
+    const path = entry.transcript ?? entry.info.transcript ?? transcriptPath(entry.info.cwd, entry.info.id);
+    entry.transcript = path;
     const mirror = new TurnMirror(entry.info.id, entry.info.cwd, path, {
       onUpdate: (snap) => {
         entry.model = snap.model ?? entry.model;
@@ -13014,6 +13236,11 @@ class Daemon {
     if (!entry) {
       this.noteUnregistered(msg);
       return;
+    }
+    if (msg.transcript && entry.transcript !== msg.transcript) {
+      entry.transcript = msg.transcript;
+      if (this.config.mirror !== "off")
+        this.attachMirror(entry);
     }
     switch (msg.event) {
       case "UserPromptSubmit":
@@ -13087,6 +13314,7 @@ class Daemon {
     }
     entry.stream = undefined;
     this.drawHud(entry, "done");
+    this.checkAccountLimit(entry);
     this.log(snap ? `turn done in ${entry.info.cwd}: ${snap.prose.length} message(s), ${snap.tools.length} tool call(s)` : `turn done in ${entry.info.cwd}: nothing mirrored (no transcript follower)`);
   }
   async sendTurn(chatId2, threadId, snap) {
@@ -13100,6 +13328,35 @@ class Daemon {
     } catch (err) {
       this.topics.noteSendFailure(chatId2, threadId, err);
     }
+  }
+  checkAccountLimit(entry) {
+    const name = entry.info.account;
+    if (!name || !entry.chatId)
+      return;
+    const running = account(name);
+    const utilization = running?.session?.utilization;
+    if (utilization === undefined || utilization < 90) {
+      entry.warnedAtLimit = false;
+      return;
+    }
+    if (entry.warnedAtLimit)
+      return;
+    entry.warnedAtLimit = true;
+    const locale = this.localeFor(entry.chatId);
+    const alternative = bestAccount(accounts().filter((a) => a.name !== name));
+    const lines = [this.t.t(locale, "accounts.warning", { name, percent: Math.round(utilization) })];
+    const reset = formatReset(running?.session?.resetsAt);
+    if (reset)
+      lines.push(this.t.t(locale, "accounts.warningReset", { reset }));
+    const offer = alternative && (alternative.session?.utilization ?? 100) < 80 ? alternative.name : undefined;
+    this.api.sendRichMessage({
+      chat_id: entry.chatId,
+      message_thread_id: entry.threadId,
+      rich_message: renderText(lines.join(" ")).toInputRichMessage(),
+      ...offer ? { reply_markup: restartOnKeyboard(handles.of(this.conn, entry.info.cwd), offer, this.t, locale) } : {}
+    }).catch(() => {
+      return;
+    });
   }
   async onTitle(sessionId, title) {
     const entry = this.sessions.get(sessionId);
@@ -13122,7 +13379,8 @@ class Daemon {
         effort: entry.effort,
         contextTokens: entry.contextTokens,
         branch: entry.branch,
-        queued: queue.depth(this.conn, entry.info.cwd) || undefined
+        queued: queue.depth(this.conn, entry.info.cwd) || undefined,
+        account: entry.info.account ? account(entry.info.account) : undefined
       },
       handle: handles.of(this.conn, entry.info.cwd),
       canInterrupt: entry.info.launched
@@ -13235,6 +13493,7 @@ function isPrivateChat(chatId2) {
 var init_daemon = __esm(() => {
   init_lib16();
   init_lib16();
+  init_cca();
   init_config();
   init_db();
   init_i18n();
@@ -13243,6 +13502,7 @@ var init_daemon = __esm(() => {
   init_access();
   init_repos();
   init_hud();
+  init_keyboards();
   init_render2();
   init_stream();
   init_topics();
@@ -29511,7 +29771,7 @@ class Protocol {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1000;
-        await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
+        await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error51) {
@@ -29523,7 +29783,7 @@ class Protocol {
   }
   request(request2, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       const earlyReject = (error51) => {
         reject(error51);
       };
@@ -29601,7 +29861,7 @@ class Protocol {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve4(parseResult.data);
+            resolve5(parseResult.data);
           }
         } catch (error51) {
           reject(error51);
@@ -29792,12 +30052,12 @@ class Protocol {
         interval = task.pollInterval;
       }
     } catch {}
-    return new Promise((resolve4, reject) => {
+    return new Promise((resolve5, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve4, interval);
+      const timeoutId = setTimeout(resolve5, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -32782,7 +33042,7 @@ var require_compile = __commonJS((exports) => {
     const schOrFunc = root.refs[ref];
     if (schOrFunc)
       return schOrFunc;
-    let _sch = resolve4.call(this, root, ref);
+    let _sch = resolve5.call(this, root, ref);
     if (_sch === undefined) {
       const schema = (_a3 = root.localRefs) === null || _a3 === undefined ? undefined : _a3[ref];
       const { schemaId } = this.opts;
@@ -32809,7 +33069,7 @@ var require_compile = __commonJS((exports) => {
   function sameSchemaEnv(s1, s2) {
     return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
   }
-  function resolve4(root, ref) {
+  function resolve5(root, ref) {
     let sch;
     while (typeof (sch = this.refs[ref]) == "string")
       ref = sch;
@@ -33606,7 +33866,7 @@ var require_fast_uri = __commonJS((exports, module) => {
     }
     return uri;
   }
-  function resolve4(baseURI, relativeURI, options) {
+  function resolve5(baseURI, relativeURI, options) {
     const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
     const {
       parsed: baseParsed,
@@ -33970,7 +34230,7 @@ var require_fast_uri = __commonJS((exports, module) => {
   var fastUri = {
     SCHEMES,
     normalize,
-    resolve: resolve4,
+    resolve: resolve5,
     resolveComponent,
     equal,
     serialize,
@@ -37359,12 +37619,12 @@ class StdioServerTransport {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve4) => {
+    return new Promise((resolve5) => {
       const json2 = serializeMessage(message);
       if (this._stdout.write(json2)) {
-        resolve4();
+        resolve5();
       } else {
-        this._stdout.once("drain", resolve4);
+        this._stdout.once("drain", resolve5);
       }
     });
   }
@@ -37544,13 +37804,13 @@ function onDaemonMsg(msg) {
   }
 }
 function callDaemon(name, args, timeoutMs) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     if (!send) {
       reject(new Error("the daemon is not connected yet \u2014 try again in a moment"));
       return;
     }
     const cid = ++callId;
-    inFlight.set(cid, { resolve: resolve4, reject });
+    inFlight.set(cid, { resolve: resolve5, reject });
     send({ t: "call", cid, name, args });
     const timer = setTimeout(() => {
       if (inFlight.delete(cid))
@@ -37563,7 +37823,7 @@ async function main() {
   connectToDaemon();
   await mcp.connect(new StdioServerTransport);
 }
-var session2, warn2 = (message) => {
+var sessionId, session2, warn2 = (message) => {
   process.stderr.write(`cctg: ${message}
 `);
 }, send = null, socket = null, spawnedDaemon = false, callId = 0, inFlight, TOOL_TIMEOUT_MS, DEFAULT_TOOL_TIMEOUT_MS = 60000, mcp, PermissionRequest, bye = () => {
@@ -37576,15 +37836,19 @@ var init_server3 = __esm(async () => {
   init_stdio2();
   init_types();
   init_zod();
+  init_cca();
   init_paths();
   init_self();
   init_tools2();
+  sessionId = process.env.CLAUDE_CODE_SESSION_ID ?? `unknown-${process.pid}`;
   session2 = {
-    id: process.env.CLAUDE_CODE_SESSION_ID ?? `unknown-${process.pid}`,
+    id: sessionId,
     cwd: process.cwd(),
     title: projectName(process.cwd()) || basename2(process.cwd()) || "session",
     pid: Number(process.env.CLAUDE_PID ?? process.pid),
-    launched: process.env.CCTG_LAUNCHED === "1"
+    launched: process.env.CCTG_LAUNCHED === "1",
+    transcript: transcriptPath(process.cwd(), sessionId),
+    account: currentAccount()?.name
   };
   process.on("unhandledRejection", (err) => warn2(`unhandled rejection: ${String(err)}`));
   process.on("uncaughtException", (err) => warn2(`uncaught exception: ${String(err)}`));
@@ -37686,7 +37950,7 @@ async function runHook() {
 init_paths();
 init_self();
 import { spawn as spawn3 } from "child_process";
-import { existsSync as existsSync6, readFileSync as readFileSync4 } from "fs";
+import { existsSync as existsSync7, readFileSync as readFileSync5 } from "fs";
 
 // src/ui.ts
 var enabled = process.stdout.isTTY === true && !process.env.NO_COLOR;
@@ -37839,8 +38103,8 @@ async function stop() {
     console.log(ok("daemon stopped"));
     return 0;
   }
-  if (existsSync6(paths.pid)) {
-    const pid = Number(readFileSync4(paths.pid, "utf8").trim());
+  if (existsSync7(paths.pid)) {
+    const pid = Number(readFileSync5(paths.pid, "utf8").trim());
     if (pid) {
       try {
         process.kill(pid, "SIGTERM");
@@ -37855,12 +38119,12 @@ async function stop() {
   return 0;
 }
 function log(follow) {
-  if (!existsSync6(paths.log)) {
+  if (!existsSync7(paths.log)) {
     console.log(info(`no log yet at ${paths.log}`));
     return 0;
   }
   if (!follow) {
-    console.log(readFileSync4(paths.log, "utf8").trimEnd());
+    console.log(readFileSync5(paths.log, "utf8").trimEnd());
     return 0;
   }
   console.log(dim(`${bold("tail -f")} ${paths.log}`));
@@ -37874,25 +38138,25 @@ init_db();
 init_paths();
 init_access();
 init_repos();
-import { existsSync as existsSync8 } from "fs";
+import { existsSync as existsSync9 } from "fs";
 
 // src/commands/setup.ts
 init_config();
 init_paths();
 init_self();
 init_access();
-import { spawnSync } from "child_process";
+import { spawnSync as spawnSync2 } from "child_process";
 import { createInterface } from "readline/promises";
 
 // src/commands/plugin-state.ts
 init_paths();
-import { readFileSync as readFileSync5 } from "fs";
-import { join as join3 } from "path";
+import { readFileSync as readFileSync6 } from "fs";
+import { join as join4 } from "path";
 var PLUGIN_NAME = "claude-telegram";
 var MARKETPLACE = "flxxxxddd/claude-telegram";
 function pluginInstalled() {
   try {
-    const raw = readFileSync5(join3(claudeHome(), "plugins", "installed_plugins.json"), "utf8");
+    const raw = readFileSync6(join4(claudeHome(), "plugins", "installed_plugins.json"), "utf8");
     const parsed = JSON.parse(raw);
     return Object.keys(parsed.plugins ?? {}).some((key) => key.split("@")[0] === PLUGIN_NAME);
   } catch {
@@ -37906,7 +38170,7 @@ var INSTALL_STEPS = [
 function inboundAllowlisted() {
   for (const path of MANAGED_SETTINGS_PATHS) {
     try {
-      const parsed = JSON.parse(readFileSync5(path, "utf8"));
+      const parsed = JSON.parse(readFileSync6(path, "utf8"));
       if (parsed.allowedChannelPlugins?.some((entry) => entry.plugin === PLUGIN_NAME))
         return true;
     } catch {}
@@ -37914,19 +38178,19 @@ function inboundAllowlisted() {
   return false;
 }
 var MANAGED_SETTINGS_PATHS = process.platform === "darwin" ? ["/Library/Application Support/ClaudeCode/managed-settings.json"] : ["/etc/claude-code/managed-settings.json"];
-var DEV_CHANNELS_FLAG = "--dangerously-load-development-channels";
+var DEV_CHANNELS_FLAG2 = "--dangerously-load-development-channels";
 
 // src/commands/settings-file.ts
 init_paths();
-import { existsSync as existsSync7, mkdirSync as mkdirSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "fs";
-import { dirname as dirname2, join as join4 } from "path";
+import { existsSync as existsSync8, mkdirSync as mkdirSync6, readFileSync as readFileSync7, writeFileSync as writeFileSync4 } from "fs";
+import { dirname as dirname2, join as join5 } from "path";
 var HOOK_EVENTS = ["UserPromptSubmit", "PostToolUse", "Stop", "SessionEnd"];
 function settingsPath() {
-  return join4(claudeHome(), "settings.json");
+  return join5(claudeHome(), "settings.json");
 }
 function readSettings() {
   try {
-    const raw = JSON.parse(readFileSync6(settingsPath(), "utf8"));
+    const raw = JSON.parse(readFileSync7(settingsPath(), "utf8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
     return {};
@@ -37952,8 +38216,8 @@ function installHooks(command2) {
   if (added.length) {
     const path = settingsPath();
     mkdirSync6(dirname2(path), { recursive: true });
-    if (existsSync7(path))
-      writeFileSync4(`${path}.cctg-backup`, readFileSync6(path));
+    if (existsSync8(path))
+      writeFileSync4(`${path}.cctg-backup`, readFileSync7(path));
     writeFileSync4(path, `${JSON.stringify({ ...settings2, hooks }, null, 2)}
 `);
   }
@@ -37983,7 +38247,7 @@ function removeHooks(command2) {
 
 // src/commands/setup.ts
 function hookCommand() {
-  if (spawnSync("command", ["-v", "cctg"], { shell: true }).status === 0)
+  if (spawnSync2("command", ["-v", "cctg"], { shell: true }).status === 0)
     return "cctg hook";
   const { exec, script } = selfEntry();
   return `${exec} ${script} hook`;
@@ -38099,7 +38363,7 @@ async function doctor() {
     checks.push({
       level: live.sessions.length ? "ok" : "warn",
       text: `${live.sessions.length} session(s) connected`,
-      fix: live.sessions.length ? undefined : `start Claude Code with \`--channels plugin:claude-telegram@claude-telegram ${DEV_CHANNELS_FLAG}\``
+      fix: live.sessions.length ? undefined : `start Claude Code with \`--channels plugin:claude-telegram@claude-telegram ${DEV_CHANNELS_FLAG2}\``
     });
   } else {
     checks.push({
@@ -38136,7 +38400,7 @@ async function doctor() {
   if (pluginInstalled()) {
     checks.push(inboundAllowlisted() ? { level: "ok", text: "inbound messages are allowlisted in managed settings" } : {
       level: "warn",
-      text: "inbound messages need `" + DEV_CHANNELS_FLAG + "`",
+      text: "inbound messages need `" + DEV_CHANNELS_FLAG2 + "`",
       fix: "without it Claude Code drops everything you type to the bot \u2014 turns still mirror, " + "which is why this looks like it half works. Add the flag to the session, or see " + "`/cctg:configure` for the managed-settings allowlist."
     });
   }
@@ -38155,7 +38419,7 @@ async function doctor() {
       fix: config.mirror === "off" ? undefined : `run \`cctg setup --hooks\` to add them to ${settingsPath()}`
     });
   }
-  checks.push(existsSync8(paths.db) ? { level: "ok", text: `state database at ${paths.db} (${topics.all(db()).length} topics)` } : { level: "warn", text: "no state database yet \u2014 it is created on first run" });
+  checks.push(existsSync9(paths.db) ? { level: "ok", text: `state database at ${paths.db} (${topics.all(db()).length} topics)` } : { level: "warn", text: "no state database yet \u2014 it is created on first run" });
   console.log(heading("cctg doctor"));
   for (const check of checks)
     console.log(render2(check));
@@ -38167,6 +38431,7 @@ ${info(`state directory: ${paths.state}`)}`);
 // src/commands/status.ts
 init_db();
 init_paths();
+init_cca();
 init_repos();
 async function status() {
   const live = await askStatus();
@@ -38192,13 +38457,19 @@ async function status() {
       if (session2.launched)
         marks.push(dim("launched from telegram"));
       console.log(`  ${bold(session2.title)}  ${marks.join(" \xB7 ")}`);
-      console.log(pairs([
+      const rows = [
         ["project", projectName(session2.cwd)],
         ["path", dim(session2.cwd)],
         ["model", session2.model ?? dim("not reported yet")],
         ["topic", session2.threadId ? String(session2.threadId) : dim("none")],
         ["connected", ago(session2.connectedAt)]
-      ]));
+      ];
+      if (session2.account) {
+        const usage = account(session2.account);
+        const limits = [formatWindow(usage?.session), formatWindow(usage?.weekly)].filter(Boolean).join("  \xB7  ");
+        rows.push(["account", limits ? `${session2.account}  ${dim(limits)}` : session2.account]);
+      }
+      console.log(pairs(rows));
     }
   }
   const conn = db();

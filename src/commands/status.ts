@@ -4,6 +4,7 @@
 
 import { db } from '../db.ts'
 import { paths, projectName } from '../paths.ts'
+import { account as ccaAccount, formatWindow } from '../cca.ts'
 import { queue, topics } from '../store/repos.ts'
 import { ago, bad, bold, cyan, dim, heading, info, ok, pairs } from '../ui.ts'
 import { askStatus } from './client.ts'
@@ -33,13 +34,19 @@ export async function status(): Promise<number> {
       const marks = [session.busy ? cyan('working') : dim('idle')]
       if (session.launched) marks.push(dim('launched from telegram'))
       console.log(`  ${bold(session.title)}  ${marks.join(' · ')}`)
-      console.log(pairs([
+      const rows: [string, string][] = [
         ['project', projectName(session.cwd)],
         ['path', dim(session.cwd)],
         ['model', session.model ?? dim('not reported yet')],
         ['topic', session.threadId ? String(session.threadId) : dim('none')],
         ['connected', ago(session.connectedAt)],
-      ]))
+      ]
+      if (session.account) {
+        const usage = ccaAccount(session.account)
+        const limits = [formatWindow(usage?.session), formatWindow(usage?.weekly)].filter(Boolean).join('  ·  ')
+        rows.push(['account', limits ? `${session.account}  ${dim(limits)}` : session.account])
+      }
+      console.log(pairs(rows))
     }
   }
 

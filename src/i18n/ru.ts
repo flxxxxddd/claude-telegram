@@ -19,6 +19,7 @@ export const ru = {
       + '/sessions — выбрать сессию для этого чата\n'
       + '/new — открыть топик проекта и запустить сессию\n'
       + '/settings — модель, effort и права\n'
+      + '/accounts — под каким аккаунтом Claude.ai идут сессии\n'
       + '/lang — сменить язык',
   },
   hud: {
@@ -28,6 +29,9 @@ export const ru = {
     effort: 'Effort',
     context: 'Контекст',
     branch: 'Ветка',
+    account: 'Аккаунт',
+    sessionLimit: 'Лимит сессии',
+    weeklyLimit: 'Лимит недели',
     session: 'Сессия',
     state: 'Статус',
     updated: 'Закреп обновляется автоматически по событиям сессии.',
@@ -85,6 +89,17 @@ export const ru = {
     saved: 'Сохранено: {what}.',
     back: 'Назад',
     close: 'Закрыть',
+  },
+  accounts: {
+    none: 'claude-account-manager на этой машине не настроен — выбирать не из чего.',
+    pick: 'Под каким аккаунтом запускать сессии отсюда?',
+    chosen: 'Новые сессии здесь пойдут под {name}.',
+    best: 'Где есть запас',
+    spent: 'выжат',
+    warning: '{name} — {percent}% лимита сессии.',
+    warningReset: 'Сбросится через {reset}.',
+    restartOn: 'Перезапустить на {name}',
+    inherit: 'Как выставлено в cca',
   },
   lang: {
     pick: 'Выберите язык:',

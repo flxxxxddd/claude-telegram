@@ -48,14 +48,24 @@ describe('queue', () => {
 describe('settings', () => {
   test('an unknown project reads as empty rather than throwing', () => {
     const conn = memoryDb()
-    expect(settings.get(conn, '/new')).toEqual({ cwd: '/new', model: null, effort: null, permission_mode: null })
+    expect(settings.get(conn, '/new'))
+      .toEqual({ cwd: '/new', model: null, effort: null, permission_mode: null, account: null })
   })
 
   test('patching one field leaves the others alone', () => {
     const conn = memoryDb()
     settings.patch(conn, '/a', { model: 'opus' })
     settings.patch(conn, '/a', { effort: 'high' })
-    expect(settings.get(conn, '/a')).toMatchObject({ model: 'opus', effort: 'high' })
+    settings.patch(conn, '/a', { account: 'work' })
+    expect(settings.get(conn, '/a')).toMatchObject({ model: 'opus', effort: 'high', account: 'work' })
+  })
+
+  test('the account column survives the migration onto an existing database', () => {
+    // Migration 2 adds `account` to a table migration 1 created. A database
+    // written before it must keep its rows and read the new column as null.
+    const conn = memoryDb()
+    settings.patch(conn, '/a', { model: 'opus' })
+    expect(settings.get(conn, '/a').account).toBeNull()
   })
 })
 

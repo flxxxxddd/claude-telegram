@@ -22,6 +22,15 @@ export type SessionInfo = {
   pid: number
   /** True when this session was spawned by the daemon, so it may be controlled. */
   launched: boolean
+  /**
+   * The transcript this session writes, resolved in the session's own
+   * environment. The daemon cannot work it out: a `cca --isolated` profile
+   * moves `CLAUDE_CONFIG_DIR`, so the daemon would follow a file under its own
+   * home that nothing ever writes.
+   */
+  transcript: string
+  /** The cca profile this session runs as, when it runs under one. */
+  account?: string
 }
 
 /** A session as the daemon reports it to the CLI and to `/sessions`. */

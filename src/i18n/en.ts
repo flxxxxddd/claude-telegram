@@ -18,6 +18,7 @@ export const en = {
       + '/sessions — pick which session this chat routes to\n'
       + '/new — open a project topic and start a session\n'
       + '/settings — model, effort and permissions\n'
+      + '/accounts — which Claude.ai account sessions here use\n'
       + '/lang — switch language',
   },
   hud: {
@@ -27,6 +28,9 @@ export const en = {
     effort: 'Effort',
     context: 'Context',
     branch: 'Branch',
+    account: 'Account',
+    sessionLimit: 'Session limit',
+    weeklyLimit: 'Weekly limit',
     session: 'Session',
     state: 'State',
     updated: 'Updates automatically as the session works.',
@@ -84,6 +88,17 @@ export const en = {
     saved: 'Saved: {what}.',
     back: 'Back',
     close: 'Close',
+  },
+  accounts: {
+    none: 'claude-account-manager is not set up on this machine, so there are no accounts to pick.',
+    pick: 'Which account should sessions started here use?',
+    chosen: 'New sessions here will use {name}.',
+    best: 'Whichever has room',
+    spent: 'spent',
+    warning: '{name} is at {percent}% of its session limit.',
+    warningReset: 'It resets in {reset}.',
+    restartOn: 'Restart on {name}',
+    inherit: 'Whatever cca is set to',
   },
   lang: {
     pick: 'Pick a language:',

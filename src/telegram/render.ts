@@ -27,6 +27,7 @@ import {
   type Insertable,
   type RichDocument,
 } from '@yaebal/rich'
+import { formatWindow, type Account } from '../cca.ts'
 import type { Locale, Strings } from '../i18n/index.ts'
 import type { TurnSnapshot } from '../mirror/transcript.ts'
 
@@ -141,6 +142,8 @@ export type HudData = {
   contextTokens?: number
   branch?: string
   queued?: number
+  /** The cca profile this session runs as, when it runs under one. */
+  account?: Account
 }
 
 /**
@@ -161,6 +164,15 @@ export function renderHud(d: HudData, o: RenderOptions): RichDocument {
     [cell(t.t(locale, 'hud.context')), cell(formatContext(d.contextTokens ?? 0, d.model) || unknown)],
   ]
   if (d.branch) rows.push([cell(t.t(locale, 'hud.branch')), cell(code(d.branch))])
+  if (d.account) {
+    // The account rows go last and only when there is an account: a machine
+    // without cca should see the table it has always seen.
+    rows.push([cell(t.t(locale, 'hud.account')), cell(bold(d.account.name))])
+    const session = formatWindow(d.account.session)
+    const weekly = formatWindow(d.account.weekly)
+    if (session) rows.push([cell(t.t(locale, 'hud.sessionLimit')), cell(limitCell(d.account.session?.utilization, session))])
+    if (weekly) rows.push([cell(t.t(locale, 'hud.weeklyLimit')), cell(limitCell(d.account.weekly?.utilization, weekly))])
+  }
   if (d.queued) rows.push([cell(t.t(locale, 'hud.session')), cell(t.t(locale, 'project.queued', { n: d.queued }))])
 
   const blocks: Insertable[] = [heading(2, state)]
@@ -169,6 +181,16 @@ export function renderHud(d: HudData, o: RenderOptions): RichDocument {
   blocks.push(footer(italic(t.t(locale, 'hud.updated'))))
 
   return document(blocks)
+}
+
+/**
+ * A limit reads differently at 20% and at 95%, and the number alone does not
+ * carry that at a glance on a phone.
+ */
+function limitCell(utilization: number | undefined, text: string): string {
+  if (utilization === undefined) return text
+  const dot = utilization >= 100 ? '🔴' : utilization >= 80 ? '🟡' : '🟢'
+  return `${dot} ${text}`
 }
 
 /* ---------------------------------------------------------------- others -- */

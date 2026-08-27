@@ -7,11 +7,13 @@
  */
 
 import type { Bot, Context } from 'yaebal'
+import { BEST_ACCOUNT, accounts as ccaAccounts, account as ccaAccount, ccaPresent } from '../cca.ts'
 import type { Locale } from '../i18n/index.ts'
 import { paths } from '../paths.ts'
 import { gateDm, gateGroup, loadAccess, mintPairingCode, pruneExpired, saveAccess } from '../store/access.ts'
 import { bindings, handles, queue, settings } from '../store/repos.ts'
 import {
+  accountCb,
   askCb,
   closeCb,
   langCb,
@@ -27,6 +29,7 @@ import {
   isEffort,
   isModel,
   isPermissionMode,
+  accountsKeyboard,
   langKeyboard,
   projectsKeyboard,
   sessionsKeyboard,
@@ -53,27 +56,26 @@ export function installHandlers(bot: Bot, d: Daemon): void {
 
   bot.command('start', async ctx => {
     const locale = tr(ctx)
-    if (!(await allowed(d, ctx as Ctx))) return
-    await say(ctx as Ctx, d.t.t(locale, 'start.greet'))
+    if (!(await allowed(d, ctx))) return
+    await say(ctx, d.t.t(locale, 'start.greet'))
   })
 
   bot.command('help', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    await say(ctx as Ctx, d.t.t(tr(ctx), 'help.body'))
+    if (!(await allowed(d, ctx))) return
+    await say(ctx, d.t.t(tr(ctx), 'help.body'))
   })
 
   bot.command('status', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    const c = ctx
-    const chatId = chatIdOf(c)
-    const locale = tr(c)
-    const cwd = d.projectFor(chatId, threadIdOf(c))
+    if (!(await allowed(d, ctx))) return
+    const chatId = chatIdOf(ctx)
+    const locale = tr(ctx)
+    const cwd = d.projectFor(chatId, threadIdOf(ctx))
     const entry = cwd
       ? d.sessions.forProject(cwd)[0]
       : d.sessions.get(bindings.get(d.conn, chatId) ?? '') ?? d.sessions.mostRecent()
 
     if (!entry) {
-      await say(c, d.t.t(locale, 'errors.noSession'))
+      await say(ctx, d.t.t(locale, 'errors.noSession'))
       return
     }
     const doc = renderHud({
@@ -85,45 +87,44 @@ export function installHandlers(bot: Bot, d: Daemon): void {
       contextTokens: entry.contextTokens,
       branch: entry.branch,
       queued: queue.depth(d.conn, entry.info.cwd) || undefined,
+      account: entry.info.account ? ccaAccount(entry.info.account) : undefined,
     }, { t: d.t, locale })
     await d.api.sendRichMessage({
       chat_id: chatId,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: doc.toInputRichMessage(),
     })
   })
 
   bot.command('sessions', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    const c = ctx
-    const chatId = chatIdOf(c)
-    const locale = tr(c)
+    if (!(await allowed(d, ctx))) return
+    const chatId = chatIdOf(ctx)
+    const locale = tr(ctx)
     const views = d.sessions.views()
     if (!views.length) {
-      await say(c, d.t.t(locale, 'sessions.none'))
+      await say(ctx, d.t.t(locale, 'sessions.none'))
       return
     }
     await d.api.sendRichMessage({
       chat_id: chatId,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, 'sessions.pick')).toInputRichMessage(),
       reply_markup: sessionsKeyboard(views, bindings.get(d.conn, chatId), d.t, locale),
     })
   })
 
   bot.command('new', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    const c = ctx
-    const chatId = chatIdOf(c)
-    const locale = tr(c)
+    if (!(await allowed(d, ctx))) return
+    const chatId = chatIdOf(ctx)
+    const locale = tr(ctx)
     const projects = d.knownProjects(chatId)
     if (!projects.length) {
-      await say(c, d.t.t(locale, 'sessions.none'))
+      await say(ctx, d.t.t(locale, 'sessions.none'))
       return
     }
     await d.api.sendRichMessage({
       chat_id: chatId,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, 'project.pick')).toInputRichMessage(),
       reply_markup: projectsKeyboard(projects.map(p => ({
         handle: handles.of(d.conn, p.cwd),
@@ -134,33 +135,87 @@ export function installHandlers(bot: Bot, d: Daemon): void {
   })
 
   bot.command('settings', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    const c = ctx
-    const chatId = chatIdOf(c)
-    const locale = tr(c)
-    const cwd = d.projectFor(chatId, threadIdOf(c))
-      ?? d.sessions.get(bindings.get(d.conn, chatId) ?? '')?.info.cwd
-      ?? d.sessions.mostRecent()?.info.cwd
+    if (!(await allowed(d, ctx))) return
+    const chatId = chatIdOf(ctx)
+    const locale = tr(ctx)
+    const cwd = projectContext(d, chatId, threadIdOf(ctx))
     if (!cwd) {
-      await say(c, d.t.t(locale, 'errors.noSession'))
+      await say(ctx, d.t.t(locale, 'errors.noSession'))
       return
     }
     const handle = handles.of(d.conn, cwd)
     await d.api.sendRichMessage({
       chat_id: chatId,
-      message_thread_id: threadIdOf(c),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, 'controls.applies')).toInputRichMessage(),
       reply_markup: settingsRootKeyboard(handle, d.settingsFor(cwd), d.t, locale),
     })
   })
 
-  bot.command('lang', async ctx => {
-    if (!(await allowed(d, ctx as Ctx))) return
-    const c = ctx
-    const locale = tr(c)
+  bot.command('accounts', async ctx => {
+    if (!(await allowed(d, ctx))) return
+    const chatId = chatIdOf(ctx)
+    const locale = tr(ctx)
+    const list = ccaAccounts()
+    if (!ccaPresent() || !list.length) {
+      await say(ctx, d.t.t(locale, 'accounts.none'))
+      return
+    }
+    const cwd = projectContext(d, chatId, threadIdOf(ctx))
+    if (!cwd) {
+      await say(ctx, d.t.t(locale, 'errors.noSession'))
+      return
+    }
     await d.api.sendRichMessage({
-      chat_id: chatIdOf(c),
-      message_thread_id: threadIdOf(c),
+      chat_id: chatId,
+      message_thread_id: threadIdOf(ctx),
+      rich_message: renderText(d.t.t(locale, 'accounts.pick')).toInputRichMessage(),
+      reply_markup: accountsKeyboard(handles.of(d.conn, cwd), list, d.settingsFor(cwd).account, d.t, locale),
+    })
+  })
+
+  bot.callbackQuery(accountCb, async ctx => {
+    const chatId = String(ctx.chat?.id ?? '')
+    const locale = d.localeFor(chatId)
+    const cwd = handles.get(d.conn, ctx.queryData.h)
+    if (!cwd) {
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, 'permission.expired') })
+      return
+    }
+    // An empty name clears the choice: sessions then run as cca's own active
+    // profile, which is what someone who never opened this panel gets.
+    const chosen = ctx.queryData.name || null
+    settings.patch(d.conn, cwd, { account: chosen })
+    const label = chosen === BEST_ACCOUNT
+      ? d.t.t(locale, 'accounts.best')
+      : chosen ?? d.t.t(locale, 'accounts.inherit')
+    if (ctx.queryData.launch) {
+      // The limit warning's button. Choosing the account without starting
+      // anything would leave the user exactly where they were.
+      const result = launch(cwd, d.config, d.settingsFor(cwd))
+      await ctx.answerCallbackQuery({ text: d.t.t(locale, 'accounts.chosen', { name: label }) })
+      await d.sendRich(
+        chatId,
+        threadIdOf(ctx),
+        result.spawned
+          ? d.t.t(locale, 'project.starting', { name: projectLabel(cwd) })
+          : d.t.t(locale, 'project.launchHint', { cmd: result.command }),
+      )
+      return
+    }
+
+    await ctx.answerCallbackQuery({ text: d.t.t(locale, 'accounts.chosen', { name: label }) })
+    await ctx.editReplyMarkup({
+      reply_markup: accountsKeyboard(ctx.queryData.h, ccaAccounts(), chosen, d.t, locale),
+    }).catch(() => undefined)
+  })
+
+  bot.command('lang', async ctx => {
+    if (!(await allowed(d, ctx))) return
+    const locale = tr(ctx)
+    await d.api.sendRichMessage({
+      chat_id: chatIdOf(ctx),
+      message_thread_id: threadIdOf(ctx),
       rich_message: renderText(d.t.t(locale, 'lang.pick')).toInputRichMessage(),
       reply_markup: langKeyboard(locale),
     })
@@ -294,7 +349,6 @@ export function installHandlers(bot: Bot, d: Daemon): void {
   /* ---------------------------------------------------------- inbound msg -- */
 
   bot.on('message:text', async ctx => {
-    const c = ctx
     if (ctx.message?.text?.startsWith('/')) return
     await routeInbound(d, ctx, ctx.message?.text ?? '')
   })
@@ -309,6 +363,18 @@ export function installHandlers(bot: Bot, d: Daemon): void {
 }
 
 /* ---------------------------------------------------------------- helpers -- */
+
+/**
+ * The project a chat is talking about: its topic's, the session it is bound to,
+ * or the most recent session. Every command that configures a project needs the
+ * same answer.
+ */
+function projectContext(d: Daemon, chatId: string, threadId: number | undefined): string | null {
+  return d.projectFor(chatId, threadId)
+    ?? d.sessions.get(bindings.get(d.conn, chatId) ?? '')?.info.cwd
+    ?? d.sessions.mostRecent()?.info.cwd
+    ?? null
+}
 
 const projectLabel = (cwd: string): string => cwd.split('/').filter(Boolean).pop() ?? cwd
 

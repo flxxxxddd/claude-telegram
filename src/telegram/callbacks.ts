@@ -46,5 +46,14 @@ export const langCb = callbackData('l', {
   locale: field.enum(['en', 'ru'] as const),
 })
 
+/** Choose the cca account sessions in this project launch as. */
+export const accountCb = callbackData('c', {
+  h: field.string(),
+  /** A profile name, `@best`, or empty to inherit whatever cca is set to. */
+  name: field.string(),
+  /** Also start a session on it — the limit warning's button does. */
+  launch: field.boolean().default(false),
+})
+
 /** Dismiss a panel without changing anything. */
 export const closeCb = callbackData('x', {})

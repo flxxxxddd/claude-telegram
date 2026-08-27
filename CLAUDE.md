@@ -30,6 +30,7 @@ src/config.ts         config.json ← environment; the token lives in .env, neve
 src/db.ts             one sqlite file, append-only migrations
 src/store/repos.ts    typed repositories: topics, bindings, queue, settings, handles
 src/store/access.ts   who may reach the assistant; hand-editable on purpose
+src/cca.ts            claude-account-manager: which login, and how much is left
 src/i18n/             en + ru dictionaries; plain strings, no markup
 src/mirror/           follow the transcript, assemble turns
   records.ts          the shape of a transcript record, as much as we need
@@ -128,6 +129,23 @@ project-scoped `settings.json` can reintroduce it.
 Code's write of the final assistant record race, and the hook usually wins:
 closing on the hook alone drops the turn's closing paragraph. `mirror.settle()`
 polls until nothing new has arrived for 300ms, capped at 2.5s.
+
+**Never recompute a session's transcript path in the daemon.** The session
+resolves it in its own environment and reports it, and the hook confirms it.
+A `cca --isolated` profile moves `CLAUDE_CONFIG_DIR`, so a path derived from
+the daemon's own home points at a file nothing ever writes — and the failure is
+silent: the mirror follows an empty file forever.
+
+**`src/cca.ts` is the only place that knows claude-account-manager's layout.**
+It reads `~/.ccacc/` directly, and that is a private layout, so every field is
+optional and a shape that has moved on degrades to "no account information"
+rather than to a crash. Read the usage *cache*, never `cca list` — that fetches
+live limits over the network, and the status message redraws several times a
+second. A session's account is identified by matching the profile's directory
+against `CLAUDE_SECURESTORAGE_CONFIG_DIR` (shared) or `CLAUDE_CONFIG_DIR`
+(isolated), not by guessing from a basename a rename would break. `@best` is
+passed to `cca run --best` rather than resolved here: cca knows things this
+bridge does not, such as which logins are about to expire.
 
 **Model, effort and permission-mode values are copied verbatim from
 `claude --help`** (2.1.246). They are passed to a launched session, so a value

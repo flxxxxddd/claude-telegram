@@ -3,7 +3,7 @@ import type { ProjectSettings } from '../db.ts'
 import { claudeCommand, renderLaunchCommand, shellQuote } from './launcher.ts'
 
 const settings = (patch: Partial<ProjectSettings> = {}): ProjectSettings =>
-  ({ cwd: '/p', model: null, effort: null, permission_mode: null, ...patch })
+  ({ cwd: '/p', model: null, effort: null, permission_mode: null, account: null, ...patch })
 
 describe('shellQuote', () => {
   test('a path with a space stays one argument', () => {
@@ -52,5 +52,31 @@ describe('renderLaunchCommand', () => {
 
   test('a template that names nothing is still run verbatim', () => {
     expect(renderLaunchCommand('echo hi', '/p', settings())).toBe('echo hi')
+  })
+})
+
+describe('launching through cca', () => {
+  test('an account turns the invocation into `cca run <name> -- <args>`', () => {
+    // `cca run` forwards everything after `--` to claude, so the prefix replaces
+    // the `claude` word rather than wrapping the whole line.
+    const command = claudeCommand('/p', settings({ account: 'work', model: 'opus' }))
+    if (!command.includes('cca run')) return // cca is not installed on this machine
+    expect(command).toContain('cca run work -- --channels')
+    expect(command).toContain('--model opus')
+    expect(command).not.toContain('cca run work -- claude')
+  })
+
+  test('no account leaves the command exactly as it was', () => {
+    const command = claudeCommand('/p', settings())
+    expect(command).not.toContain('cca')
+    expect(command).toContain('&& claude --channels')
+  })
+
+  test('the channel flags survive whichever path is taken', () => {
+    for (const account of [null, 'work', '@best']) {
+      const command = claudeCommand('/p', settings({ account }))
+      expect(command).toContain('--channels plugin:claude-telegram@claude-telegram')
+      expect(command).toContain('--dangerously-load-development-channels')
+    }
   })
 })

@@ -22,6 +22,8 @@ export type ProjectSettings = {
   model: string | null
   effort: string | null
   permission_mode: string | null
+  /** A cca profile name, or `@best` for whichever has room. */
+  account: string | null
 }
 
 const MIGRATIONS: string[] = [
@@ -80,6 +82,9 @@ const MIGRATIONS: string[] = [
      key   TEXT NOT NULL PRIMARY KEY,
      value TEXT NOT NULL
    );`,
+
+  // Which claude-account-manager profile a project's sessions launch as.
+  `ALTER TABLE settings ADD COLUMN account TEXT;`,
 ]
 
 let handle: Database | undefined

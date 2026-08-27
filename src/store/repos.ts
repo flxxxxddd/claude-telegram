@@ -90,11 +90,11 @@ export const queue = {
 
 /* -------------------------------------------------------------- settings -- */
 
-const EMPTY: Omit<ProjectSettings, 'cwd'> = { model: null, effort: null, permission_mode: null }
+const EMPTY: Omit<ProjectSettings, 'cwd'> = { model: null, effort: null, permission_mode: null, account: null }
 
 export const settings = {
   get(conn: Database, cwd: string): ProjectSettings {
-    const row = conn.query('SELECT cwd, model, effort, permission_mode FROM settings WHERE cwd = ?')
+    const row = conn.query('SELECT cwd, model, effort, permission_mode, account FROM settings WHERE cwd = ?')
       .get(cwd) as ProjectSettings | null
     return row ?? { cwd, ...EMPTY }
   },
@@ -102,10 +102,12 @@ export const settings = {
   /** Patch one project's settings; unnamed columns keep their stored value. */
   patch(conn: Database, cwd: string, patch: Partial<Omit<ProjectSettings, 'cwd'>>): ProjectSettings {
     const next = { ...settings.get(conn, cwd), ...patch }
-    conn.query(`INSERT INTO settings (cwd, model, effort, permission_mode, updated_at) VALUES (?, ?, ?, ?, ?)
+    conn.query(`INSERT INTO settings (cwd, model, effort, permission_mode, account, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (cwd) DO UPDATE SET model = excluded.model, effort = excluded.effort,
-                  permission_mode = excluded.permission_mode, updated_at = excluded.updated_at`)
-      .run(cwd, next.model, next.effort, next.permission_mode, Date.now())
+                  permission_mode = excluded.permission_mode, account = excluded.account,
+                  updated_at = excluded.updated_at`)
+      .run(cwd, next.model, next.effort, next.permission_mode, next.account, Date.now())
     return next
   },
 }
