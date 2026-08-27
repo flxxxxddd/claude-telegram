@@ -12252,7 +12252,7 @@ class TypingKeeper {
 var REFRESH_MS = 4000;
 
 // src/version.ts
-var VERSION = "0.1.4";
+var VERSION = "0.1.5";
 
 // src/daemon/launcher.ts
 import { spawn as spawn2 } from "child_process";
